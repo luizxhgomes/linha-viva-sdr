@@ -1,0 +1,84 @@
+{
+  "post_call_analysis_data": [
+    {
+      "type": "number",
+      "name": "score",
+      "description": "Nota de 0 a 100 de quao quente e qualificado ficou o lead nesta ligacao (interesse + fit + disponibilidade)."
+    },
+    {
+      "type": "boolean",
+      "name": "interessado",
+      "description": "true se a pessoa demonstrou interesse real na oportunidade de acesso premium antecipado com a call de 1 hora com o Rodrigo Noll."
+    },
+    {
+      "type": "string",
+      "name": "nome",
+      "description": "Nome da pessoa, como ela se identificou na ligacao."
+    },
+    {
+      "type": "string",
+      "name": "segmento",
+      "description": "Segmento ou ramo do negocio da pessoa."
+    },
+    {
+      "type": "boolean",
+      "name": "ja_trabalha_indicacao",
+      "description": "true se a pessoa ja trabalha com indicacao hoje no negocio dela."
+    },
+    {
+      "type": "boolean",
+      "name": "aceitou_oportunidade",
+      "description": "true se topou avançar para a call premium com o Rodrigo (agendar com o especialista)."
+    },
+    {
+      "type": "string",
+      "name": "disponibilidade",
+      "description": "Dias e periodos que a pessoa informou ter disponibilidade, em horario de Brasilia. Vazio se nao informou."
+    },
+    {
+      "type": "enum",
+      "name": "objecao_principal",
+      "choices": [
+        "preco",
+        "timing",
+        "sem_interesse",
+        "quer_pensar",
+        "outro",
+        "nenhuma"
+      ],
+      "description": "Principal objecao levantada."
+    },
+    {
+      "type": "boolean",
+      "name": "opt_out",
+      "description": "true se a pessoa pediu para nao ser mais contatada."
+    },
+    {
+      "type": "enum",
+      "name": "proximo_passo",
+      "choices": [
+        "especialista_confirma",
+        "follow_up",
+        "nurture",
+        "remover_lista",
+        "transferir_humano"
+      ],
+      "description": "Acao recomendada apos a ligacao."
+    },
+    {
+      "type": "enum",
+      "name": "sentimento",
+      "choices": [
+        "positivo",
+        "neutro",
+        "negativo"
+      ],
+      "description": "Sentimento geral da pessoa na conversa."
+    },
+    {
+      "type": "string",
+      "name": "resumo",
+      "description": "Resumo de 1 a 2 frases do atendimento, para o especialista ler antes de ligar."
+    }
+  ]
+}

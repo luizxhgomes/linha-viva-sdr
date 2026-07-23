@@ -1,0 +1,3481 @@
+<!doctype html>
+<!--
+  ============================================================================
+  BASE VIRAL  ·  Web Call ao vivo com a agente de voz IA "Carol"
+  Imersão Ecossistema de Indicação
+  ----------------------------------------------------------------------------
+  ATENÇÃO (obrigatório para funcionar):
+  Esta página usa microfone e WebRTC. Isso exige um contexto seguro.
+  Ela precisa ser servida via  https://  ou  http://localhost .
+  Sob  file://  o navegador NÃO libera o microfone e a chamada não conecta.
+
+  Para testar localmente, dentro da pasta  demo/  rode:
+
+        python3 -m http.server 8000
+
+  e abra:  http://localhost:8000/web-call.html
+
+  Fluxo técnico:
+    1. Botão "Falar com a Carol"
+    2. POST https://n8n.bilinski.cloud/webhook/voz-web-call  ->  { access_token, call_id }
+    3. Retell Web SDK (WebRTC):  new RetellWebClient().startCall({ accessToken })
+    4. Eventos do SDK atualizam a UI (fala, escuta, transcrição, duração)
+
+  REDESIGN VISUAL (apex / ui-ux-pro-max):
+    Somente a camada visual (CSS + markup + ícones) foi retrabalhada.
+    IDs, endpoints, handlers e nomes de função permanecem intactos.
+  ============================================================================
+-->
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#0B1B33" />
+<meta name="color-scheme" content="dark" />
+<title>Base Viral · Fale com a Carol</title>
+<link rel="icon" type="image/png" href="assets/favicon.png" />
+<link rel="apple-touch-icon" href="assets/favicon.png" />
+
+<!-- tipografia premium (página servida via http/https) -->
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+
+<!-- Apache ECharts: motor dos graficos de serie temporal (dual-axis, tooltip, escala).
+     Carregado com defer (nao bloqueia o paint) e fica definido antes do 1o fetch remoto.
+     Fail-safe: se a CDN falhar, renderSerieChart cai para um SVG corrigido (sem distorcao). -->
+<script defer src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+
+<script>
+  /* Marca JS ativo o quanto antes. Animacoes sao progressive enhancement:
+     sem esta classe, todo conteudo nasce visivel (fail-safe). */
+  document.documentElement.classList.add('js-anim');
+</script>
+<style>
+  :root{
+    --navy-0:#081426;
+    --navy-1:#0B1B33;
+    --navy-2:#132743;
+    --navy-3:#1b3557;
+    --panel:#0f2340;
+    --gold:#F2A900;
+    --gold-2:#ffc24d;
+    --ink:#EAF0F8;
+    --muted:#9DB0CC;
+    --muted-2:#6f88ab;
+    --danger:#ff6b6b;
+    --ok:#2ec38b;
+    --ring: rgba(242,169,0,.55);
+    --radius:22px;
+    /* glow + glass tokens (marca Base Viral) */
+    --glass-card: linear-gradient(180deg, rgba(255,255,255,.055), rgba(11,27,51,.34));
+    --glass-line: rgba(255,255,255,.10);
+    --glow-card:
+      0 0 0 1px rgba(242,169,0,.14),
+      0 24px 60px -24px rgba(0,0,0,.65),
+      inset 0 1px 0 rgba(255,255,255,.05);
+    --glow-cta: 0 8px 30px -6px rgba(242,169,0,.5), inset 0 1px 0 rgba(255,255,255,.4);
+    --glow-cta-hover: 0 14px 46px -6px rgba(242,169,0,.72), inset 0 1px 0 rgba(255,255,255,.45);
+    --shadow: 0 24px 60px -20px rgba(0,0,0,.65);
+    --font-head:"Sora","Inter",system-ui,-apple-system,Segoe UI,sans-serif;
+    --font-body:"Inter","Segoe UI",system-ui,-apple-system,Roboto,Helvetica,Arial,sans-serif;
+    font-synthesis-weight:none;
+  }
+
+  *,*::before,*::after{ box-sizing:border-box; }
+
+  html,body{
+    max-width:100%;
+    overflow-x:clip;
+  }
+  html{
+    min-height:100%;
+    background:
+      radial-gradient(1200px 680px at 82% -10%, rgba(242,169,0,.16), transparent 58%),
+      radial-gradient(960px 760px at 4% 112%, rgba(27,53,87,.95), transparent 60%),
+      radial-gradient(620px 620px at 96% 96%, rgba(242,169,0,.06), transparent 62%),
+      linear-gradient(158deg, var(--navy-2) 0%, var(--navy-1) 46%, var(--navy-0) 100%);
+    background-attachment:fixed;
+    background-color:var(--navy-0);
+  }
+
+  body{
+    margin:0;
+    height:100svh;
+    overflow:hidden;              /* requisito nº1: zero scroll no body */
+    color:var(--ink);
+    font-family:var(--font-body);
+    font-weight:500;
+    letter-spacing:.1px;
+    line-height:1.5;
+    background:transparent;
+    display:flex;
+    flex-direction:column;
+    -webkit-font-smoothing:antialiased;
+    text-rendering:optimizeLegibility;
+  }
+
+  /* ---------- layout shell — 1 viewport, sem scroll ---------- */
+  .wrap{
+    width:100%;
+    max-width:1620px;
+    height:100svh;
+    margin-inline:auto;
+    padding:clamp(12px,1.8vh,20px) clamp(14px,1.8vw,28px);
+    display:flex;
+    overflow:hidden;
+  }
+
+  /* dashboard (esquerda) + console de voz (direita) */
+  .app{
+    display:grid;
+    grid-template-columns:minmax(0,1fr) 460px;
+    gap:clamp(12px,1.4vw,20px);
+    width:100%;
+    height:100%;
+    min-height:0;
+  }
+  .dash{
+    min-width:0; min-height:0; height:100%;
+    display:flex;
+    flex-direction:column;
+    gap:clamp(8px,1vh,14px);
+    overflow:hidden;
+  }
+  /* coluna direita = UM card único: header · conversa(1fr) · performance.
+     piso de 300px na linha do meio garante folga ao console de voz (protagonista),
+     enquanto o painel Estado da Carol (linha 3, auto) fica compacto com scroll slim. */
+  .console{
+    min-width:0; min-height:0; height:100%;
+    display:grid;
+    grid-template-rows:auto minmax(300px,1fr) auto;
+    gap:0;
+    overflow:hidden;
+    position:relative;
+    background:var(--glass-card);
+    border:1px solid var(--glass-line);
+    border-radius:var(--radius);
+    box-shadow:var(--glow-card);
+    backdrop-filter:blur(20px) saturate(150%);
+    -webkit-backdrop-filter:blur(20px) saturate(150%);
+    padding:clamp(15px,1.7vw,22px);
+  }
+  .console::before{
+    content:""; position:absolute; inset:0 0 auto 0; height:1px;
+    background:linear-gradient(90deg,transparent,rgba(255,255,255,.28),transparent);
+    pointer-events:none; z-index:2;
+  }
+  .console .card{ min-height:0; overflow-x:hidden; overflow-y:auto; padding:clamp(14px,2vh,24px) clamp(4px,.8vw,10px); }
+  .console .transcript{ min-height:0; }
+
+  /* ---------- brand header ---------- */
+  .topbar{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:14px;
+    flex-wrap:nowrap;
+    padding:0 0 clamp(11px,1.4vh,15px);
+    margin-bottom:clamp(11px,1.4vh,15px);
+    border-bottom:1px solid var(--glass-line);
+    background:none; border-radius:0; box-shadow:none;
+    backdrop-filter:none; -webkit-backdrop-filter:none;
+  }
+  .brand{ display:flex; align-items:center; gap:14px; min-width:0; }
+  .brand-logo{
+    height:clamp(26px,6.4vw,32px);
+    width:auto; max-width:190px;
+    display:block; flex:none;
+    filter:drop-shadow(0 2px 10px rgba(242,169,0,.22));
+  }
+  .brand-txt{ display:flex; flex-direction:column; min-width:0; }
+  .brand-sub{
+    font-size:11.5px; color:var(--muted); font-weight:600;
+    letter-spacing:1.4px; text-transform:uppercase;
+  }
+
+  .badge{
+    display:inline-flex; align-items:center; gap:8px;
+    padding:8px 14px; border-radius:999px;
+    font-family:var(--font-head);
+    font-size:12px; font-weight:600; letter-spacing:.2px;
+    color:var(--gold-2);
+    background:rgba(242,169,0,.10);
+    border:1px solid rgba(242,169,0,.34);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.06), 0 6px 20px -12px var(--ring);
+    white-space:nowrap;
+  }
+  .badge .dot{
+    width:7px;height:7px;border-radius:50%;background:var(--gold);flex:none;
+    box-shadow:0 0 0 4px rgba(242,169,0,.16);
+  }
+  html.js-anim .badge .dot{ animation:blink 1.8s ease-in-out infinite; }
+
+  /* ---------- card / stage (transparente: o .console é o card único) ---------- */
+  .card{
+    position:relative;
+    background:none; border:0; border-radius:0; box-shadow:none;
+    backdrop-filter:none; -webkit-backdrop-filter:none;
+    flex:1;
+    display:flex;
+    flex-direction:column;
+    overflow:hidden;
+  }
+  .card::before{ display:none; }
+
+  .stage{ flex:1; display:flex; position:relative; z-index:1; }
+  .view{ display:none; }
+  .stage[data-state="idle"] .view-idle,
+  .stage[data-state="connecting"] .view-connecting,
+  .stage[data-state="incall"] .view-incall,
+  .stage[data-state="ended"] .view-ended{
+    display:flex; flex-direction:column; align-items:center; text-align:center;
+    width:100%; flex:1; justify-content:center; gap:clamp(15px,3vw,24px);
+  }
+  .stage[data-state="incall"] .view-incall{ justify-content:flex-start; }
+
+  .kicker{
+    font-family:var(--font-head);
+    font-size:12px; font-weight:700; letter-spacing:2.4px; text-transform:uppercase;
+    color:var(--gold); opacity:.92;
+  }
+  /* logo Imersão como eyebrow do hero */
+  .hero-mark{
+    height:clamp(58px,15vw,84px);
+    width:auto; max-width:100%;
+    display:block; margin:0 auto clamp(2px,1vw,6px);
+    filter:drop-shadow(0 6px 26px rgba(242,169,0,.24));
+  }
+  h1{
+    margin:0; font-family:var(--font-head); font-weight:800; letter-spacing:-.5px;
+    font-size:clamp(31px,8.4vw,48px); line-height:1.04;
+    background:linear-gradient(180deg, #ffffff 0%, #dfeafb 100%);
+    -webkit-background-clip:text; background-clip:text; color:transparent;
+  }
+  h2{
+    margin:0; font-family:var(--font-head); font-weight:700;
+    font-size:clamp(22px,6vw,31px); letter-spacing:-.3px; color:var(--ink);
+  }
+  .sub{ margin:0; color:var(--muted); font-size:clamp(15px,3.8vw,18px); max-width:36ch; }
+  .fine{ margin:0; color:var(--muted-2); font-size:13px; max-width:40ch; }
+
+  /* ---------- buttons ---------- */
+  .cta{
+    appearance:none; border:0; cursor:pointer;
+    font-family:var(--font-head); font-weight:700; letter-spacing:.2px;
+    font-size:clamp(16px,4.4vw,19px);
+    color:#231a02;
+    padding:18px 36px;
+    border-radius:999px;
+    background:linear-gradient(150deg,var(--gold-2),var(--gold));
+    box-shadow:var(--glow-cta);
+    display:inline-flex; align-items:center; gap:12px;
+    transition:transform .18s cubic-bezier(.22,.61,.36,1), box-shadow .22s ease, filter .18s ease;
+    max-width:100%;
+  }
+  html.js-anim .view-idle .cta{ animation:ctaGlow 3.4s ease-in-out infinite; }
+  .cta:hover{ transform:translateY(-2px); box-shadow:var(--glow-cta-hover); animation:none; }
+  .cta:active{ transform:translateY(0); filter:brightness(.97); }
+  .cta .ico{ width:22px;height:22px;flex:none; }
+  @keyframes ctaGlow{
+    0%,100%{ box-shadow:0 8px 30px -6px rgba(242,169,0,.42), inset 0 1px 0 rgba(255,255,255,.4); }
+    50%{ box-shadow:0 12px 42px -6px rgba(242,169,0,.66), inset 0 1px 0 rgba(255,255,255,.45); }
+  }
+
+  .btn-ghost{
+    appearance:none; cursor:pointer; font-family:var(--font-head); font-weight:600;
+    font-size:15px; color:var(--muted);
+    background:rgba(255,255,255,.02); border:1px solid rgba(157,178,207,.28);
+    padding:11px 22px; border-radius:999px;
+    transition:border-color .18s ease, color .18s ease, background .18s ease;
+  }
+  .btn-ghost:hover{ color:var(--ink); border-color:rgba(242,169,0,.45); background:rgba(242,169,0,.06); }
+
+  .btn-danger{
+    appearance:none; cursor:pointer; font-family:var(--font-head); font-weight:700;
+    font-size:16px; color:#fff;
+    background:linear-gradient(150deg,#ff7a7a,#e5484d);
+    border:0; padding:15px 30px; border-radius:999px;
+    box-shadow:0 14px 34px -14px rgba(229,72,77,.85), inset 0 1px 0 rgba(255,255,255,.22);
+    display:inline-flex; align-items:center; gap:10px;
+    transition:transform .18s ease, box-shadow .2s ease, filter .18s ease;
+  }
+  .btn-danger:hover{ transform:translateY(-2px); box-shadow:0 20px 44px -14px rgba(229,72,77,.9); }
+  .btn-danger:active{ transform:translateY(0); filter:brightness(.96); }
+
+  button:focus-visible, .cta:focus-visible{
+    outline:3px solid var(--gold-2); outline-offset:3px; animation:none;
+  }
+
+  /* ---------- spinner (connecting) ---------- */
+  .spinner{
+    width:60px;height:60px;border-radius:50%;
+    border:4px solid rgba(242,169,0,.18);
+    border-top-color:var(--gold);
+    filter:drop-shadow(0 0 12px rgba(242,169,0,.35));
+  }
+  html.js-anim .spinner{ animation:spin 1s linear infinite; }
+  @keyframes spin{ to{ transform:rotate(360deg); } }
+
+  /* ---------- orb (in call) ---------- */
+  .orb-wrap{ position:relative; display:grid; place-items:center; }
+  .orb-ring{
+    position:absolute; inset:-14px; border-radius:50%;
+    border:2px solid var(--ring); opacity:.35;
+  }
+  html.js-anim .stage.is-speaking .orb-ring{ animation:pulse 1.4s ease-out infinite; }
+  @keyframes pulse{
+    0%{ transform:scale(1); opacity:.55; }
+    100%{ transform:scale(1.3); opacity:0; }
+  }
+  .orb{
+    position:relative;
+    width:clamp(150px,42vw,210px);
+    aspect-ratio:1;
+    border-radius:50%;
+    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:6px;
+    background:
+      radial-gradient(120% 120% at 30% 25%, rgba(255,194,77,.92), rgba(242,169,0,.32) 45%, rgba(19,39,67,.2) 72%),
+      linear-gradient(160deg, var(--navy-3), var(--navy-1));
+    border:1px solid rgba(242,169,0,.42);
+    box-shadow: inset 0 2px 24px rgba(255,194,77,.25), 0 26px 50px -22px rgba(0,0,0,.7);
+    transition:box-shadow .3s ease, transform .3s ease;
+  }
+  .stage.is-speaking .orb{ box-shadow: inset 0 2px 40px rgba(255,194,77,.6), 0 26px 70px -18px var(--ring); transform:translateZ(0) scale(1.02); }
+  .orb-name{ font-family:var(--font-head); font-weight:800; font-size:clamp(23px,6vw,31px); letter-spacing:.2px; color:#fff; }
+  .orb-tag{
+    font-size:11px; font-weight:700; letter-spacing:.4px;
+    color:var(--navy-1); background:rgba(255,255,255,.82);
+    padding:4px 11px; border-radius:999px;
+  }
+
+  /* ---------- equalizer ---------- */
+  .equalizer{ display:flex; align-items:flex-end; gap:6px; height:44px; }
+  .equalizer span{
+    width:6px; height:9px; border-radius:4px;
+    background:linear-gradient(180deg,var(--gold-2),var(--gold));
+    opacity:.85; box-shadow:0 0 8px rgba(242,169,0,.35);
+  }
+  html.js-anim .equalizer span{ animation:barIdle 1.7s ease-in-out infinite; }
+  html.js-anim .stage.is-speaking .equalizer span{ animation:barTalk .6s ease-in-out infinite; }
+  .equalizer span:nth-child(1){ animation-delay:0s; }
+  .equalizer span:nth-child(2){ animation-delay:.12s; }
+  .equalizer span:nth-child(3){ animation-delay:.24s; }
+  .equalizer span:nth-child(4){ animation-delay:.36s; }
+  .equalizer span:nth-child(5){ animation-delay:.24s; }
+  .equalizer span:nth-child(6){ animation-delay:.12s; }
+  .equalizer span:nth-child(7){ animation-delay:0s; }
+  @keyframes barIdle{ 0%,100%{ height:9px; } 50%{ height:16px; } }
+  @keyframes barTalk{ 0%,100%{ height:11px; } 50%{ height:40px; } }
+
+  .status{
+    margin:0; font-family:var(--font-head); font-weight:700; font-size:clamp(16px,4.4vw,20px);
+    display:inline-flex; align-items:center; gap:9px; color:var(--ink);
+  }
+  .status .live{ width:9px;height:9px;border-radius:50%;background:var(--ok);flex:none; box-shadow:0 0 0 4px rgba(46,195,139,.18); }
+  html.js-anim .status .live{ animation:blink 1.6s ease-in-out infinite; }
+  @keyframes blink{ 0%,100%{ opacity:1; } 50%{ opacity:.35; } }
+
+  .timer{
+    font-variant-numeric:tabular-nums; letter-spacing:1px;
+    font-weight:600; font-size:15px; color:var(--muted);
+  }
+  .timer b{ color:var(--ink); font-weight:800; font-family:var(--font-head); }
+
+  /* ---------- transcript (área ao vivo, expandida) ---------- */
+  .transcript{
+    width:100%;
+    /* cresce e ocupa o miolo do card; piso generoso, teto fluido pela viewport */
+    flex:1 1 auto;
+    min-height:clamp(280px,42vh,460px);
+    overflow-y:auto;
+    overscroll-behavior:contain;
+    scroll-behavior:smooth;
+    display:flex; flex-direction:column; gap:clamp(14px,2.6vw,20px);
+    padding:clamp(16px,3.4vw,22px);
+    background:
+      linear-gradient(180deg, rgba(255,255,255,.03), rgba(8,20,38,.0) 22%),
+      rgba(8,20,38,.52);
+    border:1px solid rgba(242,169,0,.14);
+    border-radius:18px;
+    text-align:left;
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,.05),
+      inset 0 22px 34px -32px rgba(0,0,0,.75),
+      0 0 0 1px rgba(242,169,0,.05),
+      0 18px 44px -30px rgba(0,0,0,.6);
+    backdrop-filter:blur(8px) saturate(130%);
+    -webkit-backdrop-filter:blur(8px) saturate(130%);
+    scrollbar-width:thin;
+    scrollbar-color:rgba(242,169,0,.32) transparent;
+  }
+  .transcript::-webkit-scrollbar{ width:9px; }
+  .transcript::-webkit-scrollbar-thumb{
+    background:rgba(242,169,0,.28); border-radius:9px;
+    border:2px solid transparent; background-clip:padding-box;
+  }
+  .transcript::-webkit-scrollbar-thumb:hover{ background:rgba(242,169,0,.45); background-clip:padding-box; }
+  /* estado vazio: mensagem centrada, com respiro */
+  .transcript:empty{ align-items:center; justify-content:center; }
+  .transcript:empty::before{
+    content:"A transcrição aparece aqui, turno a turno.";
+    color:var(--muted-2); font-size:14px; line-height:1.5;
+    text-align:center; max-width:30ch;
+  }
+
+  /* ---------- balões de conversa (chat premium) ---------- */
+  .turn{
+    display:flex; flex-direction:column; gap:6px;
+    max-width:min(86%,52ch);
+  }
+  .turn .who{
+    font-family:var(--font-head);
+    font-size:11px; font-weight:700; letter-spacing:.7px; text-transform:uppercase;
+    display:inline-flex; align-items:center; gap:7px;
+    padding-inline:3px; opacity:.92;
+  }
+  .turn .who::before{
+    content:""; width:6px; height:6px; border-radius:50%;
+    background:currentColor; flex:none; opacity:.85;
+    box-shadow:0 0 0 3px rgba(255,255,255,.05);
+  }
+  .turn .msg{
+    margin:0; font-size:clamp(14.5px,3.6vw,15.5px); line-height:1.55; color:var(--ink);
+    padding:12px 16px; border-radius:16px;
+    overflow-wrap:anywhere;
+    box-shadow:0 10px 26px -20px rgba(0,0,0,.85), inset 0 1px 0 rgba(255,255,255,.04);
+  }
+  /* Carol: à esquerda, tom dourado da marca */
+  .turn-agent{ align-self:flex-start; align-items:flex-start; }
+  .turn-agent .who{ color:var(--gold-2); }
+  .turn-agent .msg{
+    background:linear-gradient(180deg, rgba(242,169,0,.17), rgba(242,169,0,.075));
+    border:1px solid rgba(242,169,0,.26);
+    border-top-left-radius:5px;
+  }
+  /* Usuário: à direita, navy sóbrio */
+  .turn-user{ align-self:flex-end; align-items:flex-end; }
+  .turn-user .who{ color:var(--muted); }
+  .turn-user .msg{
+    background:linear-gradient(180deg, rgba(27,53,87,.85), rgba(19,39,67,.72));
+    border:1px solid rgba(157,178,207,.18);
+    border-top-right-radius:5px;
+    text-align:left;
+  }
+
+  .callid{ margin:0; font-size:11px; color:var(--muted-2); letter-spacing:.4px; }
+
+  /* ---------- ended check ---------- */
+  .check{
+    width:70px;height:70px;border-radius:50%;
+    display:grid;place-items:center;
+    color:var(--navy-1);
+    background:linear-gradient(150deg,var(--gold-2),var(--gold));
+    box-shadow:0 16px 36px -14px var(--ring), inset 0 1px 0 rgba(255,255,255,.4);
+  }
+  .check svg{ width:32px;height:32px; }
+
+  /* ================= resumo da ligação ================= */
+  .resumo{ width:100%; }
+  /* sub-estados: so um bloco visivel por vez, controlado por data-sum */
+  .resumo > div{ display:none; width:100%; }
+  .resumo[data-sum="processing"] .sum-processing,
+  .resumo[data-sum="timeout"]    .sum-timeout,
+  .resumo[data-sum="basic"]      .sum-basic,
+  .resumo[data-sum="ready"]      .sum-ready{
+    display:flex; flex-direction:column; align-items:center;
+    gap:clamp(13px,3vw,20px); text-align:center;
+  }
+
+  .row-actions{ display:flex; flex-wrap:wrap; gap:12px; justify-content:center; }
+
+  .sum-seal{
+    display:inline-flex; align-items:center; gap:9px; align-self:center;
+    padding:10px 17px; border-radius:999px;
+    font-family:var(--font-head);
+    font-size:13px; font-weight:700; letter-spacing:.2px;
+    color:#c6f4de; text-align:center;
+    background:rgba(46,195,139,.14);
+    border:1px solid rgba(46,195,139,.42);
+    box-shadow:0 10px 30px -18px rgba(46,195,139,.7);
+  }
+  .sum-seal[hidden]{ display:none; }
+  .sum-seal .seal-dot{
+    width:8px;height:8px;border-radius:50%;background:var(--ok);flex:none;
+    box-shadow:0 0 0 4px rgba(46,195,139,.18);
+  }
+  html.js-anim .sum-seal .seal-dot{ animation:blink 1.6s ease-in-out infinite; }
+
+  /* --------- scorecard --------- */
+  .scorecard{
+    width:100%; text-align:left;
+    background:linear-gradient(180deg, rgba(8,20,38,.58), rgba(11,27,51,.5));
+    border:1px solid rgba(242,169,0,.22);
+    border-radius:20px;
+    padding:clamp(18px,4.6vw,28px);
+    box-shadow:
+      0 0 0 1px rgba(242,169,0,.10),
+      0 22px 50px -24px rgba(0,0,0,.66),
+      inset 0 1px 0 rgba(255,255,255,.05);
+    backdrop-filter:blur(10px);
+    -webkit-backdrop-filter:blur(10px);
+    display:flex; flex-direction:column; gap:clamp(16px,3.6vw,22px);
+  }
+  .scorecard-head{ display:flex; align-items:center; gap:clamp(14px,3.6vw,20px); flex-wrap:wrap; }
+  .scorecard-title{ min-width:0; display:flex; flex-direction:column; gap:6px; flex:1; }
+  .scorecard-title h2{ font-size:clamp(19px,4.8vw,25px); line-height:1.14; }
+
+  @property --pct{ syntax:"<number>"; inherits:false; initial-value:0; }
+  .score-ring{
+    --pct:0; --rc:var(--gold);
+    width:clamp(104px,27vw,138px); aspect-ratio:1; flex:none;
+    border-radius:50%; display:grid; place-items:center; position:relative;
+    background:
+      radial-gradient(closest-side, var(--navy-1) 72%, transparent 73%),
+      conic-gradient(var(--rc) calc(var(--pct)*1%), rgba(157,178,207,.16) 0);
+    transition:--pct .9s cubic-bezier(.22,.61,.36,1);
+    filter:drop-shadow(0 0 16px rgba(242,169,0,.18));
+  }
+  .score-ring[data-tier="high"]{ --rc:var(--ok); }
+  .score-ring[data-tier="mid"]{ --rc:var(--gold); }
+  .score-ring[data-tier="low"]{ --rc:#ff9f43; }
+  .score-ring[data-tier="unknown"]{ --rc:rgba(157,178,207,.4); }
+  .score-inner{ display:flex; flex-direction:column; align-items:center; gap:1px; z-index:1; }
+  .score-num{
+    font-family:var(--font-head);
+    font-weight:800; font-size:clamp(30px,7.6vw,42px); line-height:1;
+    color:var(--ink); font-variant-numeric:tabular-nums;
+  }
+  .score-max{ font-size:11px; font-weight:700; letter-spacing:.5px; color:var(--muted); text-transform:uppercase; }
+
+  /* --------- linhas de dados --------- */
+  .sum-rows{ display:flex; flex-direction:column; }
+  .sum-row{ display:flex; align-items:flex-start; gap:13px; padding:12px 4px; }
+  .sum-row + .sum-row{ border-top:1px solid rgba(157,178,207,.12); }
+  .sum-row.is-highlight{
+    background:rgba(242,169,0,.08);
+    border:1px solid rgba(242,169,0,.30);
+    border-radius:12px; padding:12px 14px; margin:5px 0;
+  }
+  .sum-row.is-highlight + .sum-row{ border-top:0; }
+  .row-ico{
+    flex:none; width:26px; height:26px; border-radius:8px;
+    display:inline-flex; align-items:center; justify-content:center;
+    color:var(--gold-2);
+    background:rgba(242,169,0,.10);
+    border:1px solid rgba(242,169,0,.22);
+  }
+  .row-ico svg{ width:16px; height:16px; }
+  .row-body{ display:flex; flex-direction:column; gap:2px; min-width:0; }
+  .row-label{
+    font-family:var(--font-head);
+    font-size:11px; font-weight:700; letter-spacing:.8px; text-transform:uppercase;
+    color:var(--gold-2);
+  }
+  .row-value{
+    font-size:clamp(14.5px,3.6vw,16px); color:var(--ink); font-weight:600;
+    overflow-wrap:anywhere; line-height:1.4;
+  }
+  .row-value.is-empty{ color:var(--muted-2); font-weight:600; }
+
+  /* ---------- error banner ---------- */
+  .errbar{
+    display:flex; align-items:flex-start; gap:12px;
+    background:rgba(255,107,107,.12);
+    border:1px solid rgba(255,107,107,.4);
+    color:#ffd9d9;
+    padding:13px 15px; border-radius:14px;
+    font-size:14px; font-weight:600; line-height:1.4;
+    margin-bottom:18px;
+  }
+  .errbar[hidden]{ display:none; }
+  .errbar .ico{ flex:none; color:var(--danger); display:inline-flex; }
+  .errbar .ico svg{ width:19px; height:19px; }
+  .errbar .x{
+    margin-left:auto; cursor:pointer; background:transparent; border:0;
+    color:#ffd9d9; padding:0 2px; display:inline-flex; align-items:center;
+  }
+  .errbar .x svg{ width:17px; height:17px; }
+
+  /* ---------- footer ---------- */
+  .foot{
+    text-align:center; color:var(--muted-2); font-size:12.5px; letter-spacing:.3px;
+    padding-bottom:6px;
+  }
+  .foot b{ color:var(--muted); font-weight:700; }
+
+  /* ---------- reveal (progressive enhancement, fail-safe) ---------- */
+  .reveal{ opacity:1; }
+  html.js-anim .reveal{ opacity:0; transform:translateY(16px); animation:revealIn .6s cubic-bezier(.22,.61,.36,1) forwards; }
+  html.js-anim .reveal.r2{ animation-delay:.09s; }
+  html.js-anim .reveal.r3{ animation-delay:.18s; }
+  @keyframes revealIn{ to{ opacity:1; transform:none; } }
+
+  /* ==================================================================== */
+  /* ================= DASHBOARD "Central da Carol" ===================== */
+  /* ==================================================================== */
+
+  .dcard{
+    position:relative;
+    background:var(--glass-card);
+    border:1px solid var(--glass-line);
+    border-radius:var(--radius);
+    box-shadow:var(--glow-card);
+    backdrop-filter:blur(16px) saturate(140%);
+    -webkit-backdrop-filter:blur(16px) saturate(140%);
+    padding:clamp(16px,2.4vw,24px);
+    min-width:0;
+  }
+  .dcard::before{
+    content:""; position:absolute; inset:0 0 auto 0; height:1px;
+    background:linear-gradient(90deg,transparent,rgba(255,255,255,.22),transparent);
+    pointer-events:none;
+  }
+  .dash-kick{
+    display:block; margin-bottom:14px;
+    font-family:var(--font-head);
+    font-size:11px; font-weight:700; letter-spacing:2.2px; text-transform:uppercase;
+    color:var(--gold); opacity:.92;
+  }
+  .console-kick{ margin-bottom:0; }
+  .dash-kick-sm{
+    display:block; margin-bottom:12px;
+    font-family:var(--font-head);
+    font-size:10.5px; font-weight:700; letter-spacing:1.6px; text-transform:uppercase;
+    color:var(--muted);
+  }
+  .chart-empty{ padding:26px 12px; text-align:center; color:var(--muted-2); font-size:13px; }
+
+  /* ---------- telemetria ---------- */
+  .tele{ overflow:hidden; }
+  .tele-bar{ display:flex; align-items:center; gap:clamp(10px,1.6vw,20px); padding:11px clamp(14px,1.8vw,20px); position:relative; flex-wrap:nowrap; }
+  .tele-brand{ display:flex; align-items:center; gap:10px; flex:none; min-width:0; }
+  .tele-title{
+    margin:0; font-family:var(--font-head); font-weight:800; letter-spacing:-.3px;
+    font-size:clamp(15px,1.5vw,19px); line-height:1; white-space:nowrap;
+    background:linear-gradient(180deg,#fff,#dfeafb);
+    -webkit-background-clip:text; background-clip:text; color:transparent;
+  }
+  .tele-live{
+    display:inline-flex; align-items:center; gap:7px; flex:none;
+    font-family:var(--font-head); font-weight:700; letter-spacing:.6px;
+    color:var(--ok); text-transform:uppercase; font-size:10.5px; white-space:nowrap;
+  }
+  html.js-anim .tele-live .live{ animation:blink 1.6s ease-in-out infinite; }
+  .tele-right{ display:flex; align-items:center; gap:9px; margin-left:auto; flex:none; font-size:12.5px; color:var(--muted); font-variant-numeric:tabular-nums; white-space:nowrap; }
+  .tele-clock{ font-variant-numeric:tabular-nums; font-weight:600; color:var(--ink); letter-spacing:.5px; }
+  .tele-beat{
+    position:absolute; left:0; right:0; bottom:0; height:1px; overflow:hidden;
+    background:rgba(242,169,0,.10);
+  }
+  .tele-beat::after{
+    content:""; position:absolute; top:0; bottom:0; left:-30%; width:30%;
+    background:linear-gradient(90deg,transparent,var(--gold),transparent);
+    transform:translateX(0);
+  }
+  html.js-anim .tele.beating .tele-beat::after{ animation:beatSweep 1s cubic-bezier(.22,.61,.36,1) 1; }
+  @keyframes beatSweep{ from{ transform:translateX(0); } to{ transform:translateX(430%); } }
+  html.js-anim .tele.flash{ animation:teleFlash .7s ease-out 1; }
+  @keyframes teleFlash{
+    0%{ box-shadow:var(--glow-card), 0 0 0 2px rgba(242,169,0,.55); }
+    100%{ box-shadow:var(--glow-card); }
+  }
+
+  /* ---------- panorama: grade uniforme de KPIs (mesma altura/tamanho) ---------- */
+  .panorama-grid{
+    display:grid;
+    grid-template-columns:repeat(4, minmax(0,1fr));
+    grid-auto-rows:1fr;
+    gap:12px;
+  }
+  .kpi{
+    display:flex; flex-direction:column; gap:6px; justify-content:flex-start; min-width:0; min-height:100px;
+    padding:15px 16px; border-radius:16px;
+    background:rgba(8,20,38,.42); border:1px solid rgba(157,178,207,.14);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.03);
+  }
+  .kpi-hero{
+    background:linear-gradient(160deg,rgba(242,169,0,.16),rgba(242,169,0,.04));
+    border:1px solid rgba(242,169,0,.36);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.06), 0 14px 34px -26px rgba(242,169,0,.5);
+  }
+  .kpi-lab{ font-size:10.5px; font-weight:700; letter-spacing:.5px; color:var(--muted); text-transform:uppercase; line-height:1.25; min-height:2.5em; display:flex; align-items:flex-start; }
+  .kpi-num{
+    font-family:var(--font-head); font-weight:800; line-height:1;
+    font-size:clamp(23px,2.3vw,29px); letter-spacing:-.5px;
+    color:var(--ink); font-variant-numeric:tabular-nums; overflow-wrap:anywhere;
+  }
+  .kpi-hero .kpi-num{ color:var(--gold-2); }
+  .kpi-ctx{ font-size:11px; color:var(--muted-2); font-variant-numeric:tabular-nums; line-height:1.25; min-height:1.25em; margin-top:auto; }
+  .kpi-delta{ display:inline-flex; align-items:center; gap:3px; font-size:11px; font-weight:700; font-variant-numeric:tabular-nums; min-height:1.25em; margin-top:auto; }
+  .kpi-delta .dico{ width:12px; height:12px; }
+  .kpi-delta.up-good{ color:var(--ok); }
+  .kpi-delta.up-bad{ color:var(--danger); }
+  .kpi-delta.flat{ color:var(--muted-2); }
+
+  /* ---------- breakdown por produto ---------- */
+  .breakdown{ margin-top:clamp(16px,2.2vw,22px); }
+  .bars{ display:flex; flex-direction:column; gap:9px; }
+  .bar-row{ display:grid; grid-template-columns:minmax(78px,120px) minmax(0,1fr) auto; gap:12px; align-items:center; }
+  .bar-name{ font-size:12px; color:var(--muted); font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .bar-track{ height:8px; border-radius:999px; background:rgba(157,178,207,.1); overflow:hidden; }
+  .bar-fill{
+    display:block; height:100%; width:0; border-radius:999px;
+    background:linear-gradient(90deg,rgba(242,169,0,.5),var(--gold));
+    box-shadow:0 0 12px rgba(242,169,0,.3);
+    transition:width .9s cubic-bezier(.22,.61,.36,1);
+  }
+  .bar-val{ font-size:12px; font-weight:700; color:var(--ink); font-variant-numeric:tabular-nums; white-space:nowrap; text-align:right; }
+
+  /* ---------- calculadora de previsibilidade ---------- */
+  .calc{ margin-top:clamp(16px,2.2vw,22px); padding-top:clamp(16px,2.2vw,20px); border-top:1px solid rgba(157,178,207,.12); }
+  .calc-controls{ display:flex; flex-direction:column; gap:16px; }
+  .calc-field{ display:flex; flex-direction:column; gap:9px; }
+  .calc-field-head{ display:flex; align-items:baseline; justify-content:space-between; gap:10px; }
+  .calc-field-label{ font-size:12px; font-weight:600; color:var(--muted); }
+  .calc-field-val{ font-family:var(--font-head); font-weight:800; font-size:15px; color:var(--gold-2); font-variant-numeric:tabular-nums; }
+  input[type="range"].calc-range{
+    -webkit-appearance:none; appearance:none; width:100%; height:6px; border-radius:999px;
+    background:linear-gradient(90deg,var(--gold) 0%, var(--gold) var(--fill,50%), rgba(157,178,207,.16) var(--fill,50%));
+    outline:none; cursor:pointer;
+  }
+  input[type="range"].calc-range::-webkit-slider-thumb{
+    -webkit-appearance:none; appearance:none; width:18px; height:18px; border-radius:50%;
+    background:linear-gradient(150deg,var(--gold-2),var(--gold));
+    border:2px solid var(--navy-1); box-shadow:0 4px 12px -2px var(--ring); cursor:pointer;
+  }
+  input[type="range"].calc-range::-moz-range-thumb{
+    width:18px; height:18px; border-radius:50%;
+    background:var(--gold); border:2px solid var(--navy-1); cursor:pointer;
+  }
+  input[type="range"].calc-range:focus-visible{ outline:3px solid var(--gold-2); outline-offset:4px; }
+  .calc-models{ display:flex; gap:8px; flex-wrap:wrap; }
+  .calc-model{
+    flex:1 1 110px; min-width:0; cursor:pointer; text-align:left;
+    padding:10px 12px; border-radius:12px;
+    background:rgba(8,20,38,.4); border:1px solid rgba(157,178,207,.16);
+    transition:border-color .18s ease, background .18s ease;
+  }
+  .calc-model:hover{ border-color:rgba(242,169,0,.4); }
+  .calc-model.on{ border-color:rgba(242,169,0,.55); background:rgba(242,169,0,.08); }
+  .calc-model:focus-visible{ outline:3px solid var(--gold-2); outline-offset:3px; }
+  .calc-model .cm-name{ display:block; font-family:var(--font-head); font-weight:700; font-size:12.5px; color:var(--ink); }
+  .calc-model .cm-rate{ display:block; font-size:11px; color:var(--muted); font-variant-numeric:tabular-nums; margin-top:2px; }
+  .calc-model .cm-note{ display:block; font-size:10.5px; color:var(--muted-2); margin-top:3px; }
+  .calc-out{ display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:16px; }
+  .calc-out-card{ padding:14px 16px; border-radius:16px; background:linear-gradient(160deg,rgba(242,169,0,.1),rgba(242,169,0,.02)); border:1px solid rgba(242,169,0,.24); }
+  .calc-out-num{ display:block; font-family:var(--font-head); font-weight:800; font-size:clamp(21px,2.8vw,27px); color:var(--gold-2); font-variant-numeric:tabular-nums; letter-spacing:-.4px; }
+  .calc-out-lab{ display:block; font-size:11px; font-weight:600; letter-spacing:.4px; color:var(--muted); text-transform:uppercase; margin-top:3px; }
+  .calc-note{ font-size:11.5px; color:var(--muted-2); margin-top:12px; line-height:1.5; }
+  .calc-note b{ color:var(--muted); font-weight:700; font-variant-numeric:tabular-nums; }
+
+  /* ---------- gráficos ---------- */
+  .charts-grid{ display:grid; grid-template-columns:1.55fr 1fr; gap:clamp(14px,2vw,22px); align-items:start; }
+  .chart-wrap{ min-width:0; }
+  .chart-svg{ width:100%; height:auto; display:block; }
+  .chart-line{ transition:stroke-dashoffset .9s cubic-bezier(.22,.61,.36,1); }
+  .chart-area{ opacity:0; transition:opacity .9s ease; }
+  .chart-area.in{ opacity:1; }
+  html.js-anim .chart-ping{ animation:chartPing 1.8s ease-out infinite; }
+  @keyframes chartPing{ 0%{ opacity:.55; r:3; } 70%{ opacity:0; r:12; } 100%{ opacity:0; r:12; } }
+  .chart-foot{ display:flex; gap:16px; margin-top:9px; flex-wrap:wrap; }
+  .cf-item{ display:inline-flex; align-items:center; gap:7px; font-size:11px; color:var(--muted); }
+  .cf-dot{ width:11px; height:2px; border-radius:2px; flex:none; }
+  .cf-gold{ background:var(--gold); }
+  .cf-mut{ background:rgba(157,178,207,.5); }
+  .donut-wrap{ display:flex; flex-direction:column; align-items:center; gap:14px; }
+  .donut-svg{ width:clamp(128px,42%,158px); height:auto; }
+  .donut-legend{ display:flex; flex-direction:column; gap:7px; width:100%; }
+  .donut-leg{ display:flex; align-items:center; gap:8px; font-size:12px; color:var(--muted); }
+  .donut-leg .ld{ width:9px; height:9px; border-radius:50%; flex:none; }
+  .donut-leg .lv{ margin-left:auto; font-weight:700; color:var(--ink); font-variant-numeric:tabular-nums; }
+
+  /* ---------- histórico de chamadas (lista elevada) ---------- */
+  .log{ display:flex; flex-direction:column; }
+  .log-row{
+    display:grid; grid-template-columns:auto minmax(0,1fr) auto auto;
+    gap:11px; align-items:center; padding:10px 4px;
+  }
+  .log-row + .log-row{ border-top:1px solid rgba(157,178,207,.09); }
+
+  /* tier -> paleta local reaproveitada por avatar e mini-anel */
+  .log-row[data-tier="high"]   { --tc:#5fe0ac;     --tc-bg:rgba(46,195,139,.15);  --tc-bd:rgba(46,195,139,.5); }
+  .log-row[data-tier="mid"]    { --tc:var(--gold-2);--tc-bg:rgba(242,169,0,.15);  --tc-bd:rgba(242,169,0,.5); }
+  .log-row[data-tier="low"]    { --tc:#ffb27a;     --tc-bg:rgba(255,159,67,.15);  --tc-bd:rgba(255,159,67,.5); }
+  .log-row[data-tier="unknown"]{ --tc:var(--muted);--tc-bg:rgba(157,178,207,.1);  --tc-bd:rgba(157,178,207,.3); }
+
+  /* avatar: inicial do lead (ou icone generico), tingido pelo tier */
+  .log-av{
+    width:36px; height:36px; border-radius:50%; flex:none;
+    display:grid; place-items:center;
+    font-family:var(--font-head); font-weight:800; font-size:14px; line-height:1;
+    color:var(--tc); background:var(--tc-bg); border:1px solid var(--tc-bd);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.06);
+  }
+  .log-av svg{ width:17px; height:17px; opacity:.9; }
+
+  .log-main{ display:flex; flex-direction:column; gap:3px; min-width:0; }
+  .log-name-line{ display:flex; align-items:center; gap:8px; min-width:0; }
+  .log-name{ font-family:var(--font-head); font-weight:700; font-size:14px; color:var(--ink); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .log-meta{ display:flex; align-items:center; gap:7px; min-width:0; font-variant-numeric:tabular-nums; }
+  .log-when{ font-size:11px; color:var(--muted-2); white-space:nowrap; }
+  .log-dot{ width:3px; height:3px; border-radius:50%; background:var(--muted-2); opacity:.55; flex:none; }
+  .log-sentiment{ display:inline-flex; align-items:center; gap:5px; font-size:10.5px; font-weight:600; color:var(--sc,var(--muted-2)); white-space:nowrap; }
+  .log-sentiment .sd{ width:7px; height:7px; border-radius:50%; background:var(--sc,var(--muted-2)); flex:none; box-shadow:0 0 6px -1px var(--sc); }
+
+  /* status discreto na linha do nome */
+  .res-pill{ font-size:10px; font-weight:600; letter-spacing:.2px; padding:2px 8px; border-radius:999px; white-space:nowrap; flex:none; }
+  .res-pill.qual{ color:#c6f4de; background:rgba(46,195,139,.12); border:1px solid rgba(46,195,139,.34); }
+  .res-pill.follow{ color:var(--gold-2); background:rgba(242,169,0,.1); border:1px solid rgba(242,169,0,.3); }
+  .res-pill.human{ color:#a9c6ff; background:rgba(120,160,255,.1); border:1px solid rgba(120,160,255,.32); }
+  .res-pill.out{ color:#ffb3b3; background:rgba(255,107,107,.1); border:1px solid rgba(255,107,107,.32); }
+  .res-pill.none{ color:var(--muted); background:rgba(157,178,207,.08); border:1px solid rgba(157,178,207,.2); }
+
+  /* mini-anel de score: reaproveita o DNA do .score-ring, em escala compacta */
+  .log-ring{
+    --pct:0; --rc:var(--gold);
+    width:38px; height:38px; flex:none; border-radius:50%;
+    display:grid; place-items:center; position:relative;
+    background:
+      radial-gradient(closest-side, var(--navy-1) 70%, transparent 71%),
+      conic-gradient(var(--rc) calc(var(--pct)*1%), rgba(157,178,207,.16) 0);
+    transition:--pct .9s cubic-bezier(.22,.61,.36,1);
+  }
+  .log-ring[data-tier="high"]{ --rc:var(--ok); }
+  .log-ring[data-tier="mid"]{ --rc:var(--gold); }
+  .log-ring[data-tier="low"]{ --rc:#ff9f43; }
+  .log-ring[data-tier="unknown"]{ --rc:rgba(157,178,207,.4); }
+  .log-ring b{ font-family:var(--font-head); font-weight:800; font-size:11.5px; line-height:1; color:var(--ink); font-variant-numeric:tabular-nums; }
+
+  .log-nums{ display:flex; flex-direction:column; align-items:flex-end; gap:2px; text-align:right; }
+  .log-cost{ font-family:var(--font-head); font-weight:700; font-size:13px; color:var(--ink); font-variant-numeric:tabular-nums; }
+  .log-dur{ font-size:11px; color:var(--muted-2); font-variant-numeric:tabular-nums; }
+  .log-more{ text-align:center; margin-top:12px; font-size:12px; color:var(--muted-2); }
+
+  /* ---------- skeleton (primeiro load) ---------- */
+  html.js-anim .dash.is-loading .dcard,
+  html.js-anim .dash.is-loading .tab-card{ animation:cardPulse 1.5s ease-in-out infinite; }
+  @keyframes cardPulse{ 0%,100%{ opacity:1; } 50%{ opacity:.7; } }
+
+  /* ==================================================================== */
+  /* ============ ZERO-SCROLL: telemetria compacta + abas =============== */
+  /* ==================================================================== */
+  .tele{ padding:clamp(12px,1.4vw,16px) clamp(14px,1.8vw,22px); }
+  .tele-row{ display:flex; align-items:center; justify-content:space-between; gap:10px 18px; flex-wrap:wrap; }
+  .tele-meta{ margin-top:0; }
+  .tele-title{ font-size:clamp(20px,2.5vw,27px); }
+
+  .tab-row{ display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap; }
+  .tabbar{
+    display:inline-flex; gap:5px; padding:5px; border-radius:999px; flex:none;
+    background:rgba(8,20,38,.5); border:1px solid rgba(157,178,207,.14);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.03);
+  }
+  .tab-summary{ display:flex; align-items:center; gap:9px; font-size:12.5px; color:var(--muted); font-variant-numeric:tabular-nums; padding-right:4px; }
+  .tab-summary b{ font-family:var(--font-head); color:var(--ink); font-weight:700; }
+  .ts-dot{ color:var(--muted-2); }
+  .tab-btn{
+    appearance:none; border:0; cursor:pointer; font-family:var(--font-head);
+    font-weight:700; font-size:12.5px; letter-spacing:.3px; color:var(--muted);
+    background:transparent; padding:8px 18px; border-radius:999px;
+    transition:color .2s ease, background .2s ease, box-shadow .2s ease;
+  }
+  .tab-btn:hover:not(.on){ color:var(--ink); }
+  .tab-btn.on{ color:#231a02; background:linear-gradient(150deg,var(--gold-2),var(--gold)); box-shadow:0 6px 18px -8px var(--ring); }
+  .tab-btn:focus-visible{ outline:3px solid var(--gold-2); outline-offset:2px; }
+
+  .tabs-panels{ position:relative; flex:1; min-height:0; }
+  .tabpanel{
+    position:absolute; inset:0; overflow:hidden;
+    opacity:0; visibility:hidden; pointer-events:none;
+    transition:opacity .25s ease;
+  }
+  .tabpanel.on{ opacity:1; visibility:visible; pointer-events:auto; }
+  .tab-card{ height:100%; display:flex; flex-direction:column; justify-content:flex-start; gap:14px; overflow:hidden; }
+  .pano-chart{ flex:1; min-height:0; display:flex; flex-direction:column; border-top:1px solid rgba(157,178,207,.12); padding-top:14px; }
+  .pano-chart .perf-lat-head{ margin-bottom:6px; }
+  .pano-chart-host{ flex:1; min-height:100px; }
+  .pano-chart-host .chart-svg{ height:100%; }
+  .tab-card > .dash-kick{ margin-bottom:0; }
+
+  /* --- aba Panorama: KPIs e funil dividem a altura (sem card gigante nem vazio) --- */
+  .panorama-grid{ flex:none; grid-auto-rows:1fr; min-height:0; align-items:stretch; }
+  .funnel{
+    flex:none; display:flex; flex-direction:column; justify-content:flex-start;
+    border-top:1px solid rgba(157,178,207,.12);
+    padding-top:16px;
+  }
+  .funnel-body{ display:flex; flex-direction:column; justify-content:flex-start; gap:16px; }
+  .funnel-rows{ display:flex; flex-direction:column; gap:14px; }
+  .funnel-head{ display:flex; align-items:baseline; justify-content:space-between; gap:10px; margin-bottom:12px; }
+  .funnel-head-note{ font-size:12px; color:var(--gold-2); font-weight:600; font-variant-numeric:tabular-nums; }
+  .funnel-row{ display:grid; grid-template-columns:98px minmax(0,1fr) auto; gap:12px; align-items:center; }
+  .funnel-lab{ font-size:12px; font-weight:600; color:var(--muted); }
+  .funnel-track{ height:clamp(12px,1.9vh,22px); border-radius:999px; background:rgba(157,178,207,.1); overflow:hidden; }
+  .funnel .lat-stack{ height:clamp(14px,1.9vh,22px); }
+  .funnel-fill{ display:block; height:100%; width:0; border-radius:999px;
+    background:linear-gradient(90deg,rgba(157,178,207,.4),rgba(157,178,207,.72));
+    transition:width .8s cubic-bezier(.22,.61,.36,1); }
+  .funnel-fill.gold{ background:linear-gradient(90deg,rgba(242,169,0,.55),var(--gold)); box-shadow:0 0 14px rgba(242,169,0,.35); }
+  .funnel-val{ font-family:var(--font-head); font-weight:800; font-size:15px; color:var(--ink); font-variant-numeric:tabular-nums; }
+  .funnel-conv{ display:flex; align-items:baseline; gap:10px; }
+  .funnel-conv-num{ font-family:var(--font-head); font-weight:800; font-size:clamp(28px,4.6vh,46px); color:var(--gold-2); font-variant-numeric:tabular-nums; letter-spacing:-.5px; }
+  .funnel-conv-lab{ font-size:12px; color:var(--muted); }
+  .funnel-sent-head, .perf-lat-head{ display:flex; justify-content:space-between; align-items:center; font-size:11px; color:var(--muted); margin-bottom:8px; font-variant-numeric:tabular-nums; }
+  .funnel-foot{ display:flex; gap:18px; flex-wrap:wrap; padding-top:10px; border-top:1px solid rgba(157,178,207,.1); }
+  .ff-item{ font-size:11.5px; color:var(--muted-2); }
+  .ff-item b{ font-family:var(--font-head); color:var(--ink); font-weight:800; font-variant-numeric:tabular-nums; }
+
+  /* barra empilhada (sentimento no funil + latência no perf) */
+  .lat-stack{ display:flex; height:14px; border-radius:999px; overflow:hidden; background:rgba(157,178,207,.1); }
+  .lat-seg{ height:100%; transition:width .7s cubic-bezier(.22,.61,.36,1); }
+  .lat-legend{ display:flex; flex-wrap:wrap; gap:9px 14px; margin-top:9px; }
+  .lat-leg{ display:inline-flex; align-items:center; gap:6px; font-size:11px; color:var(--muted); }
+  .lat-leg .ld{ width:9px; height:9px; border-radius:2px; flex:none; }
+  .lat-leg b{ color:var(--ink); font-weight:700; font-variant-numeric:tabular-nums; }
+
+  /* --- aba Custos: 2 colunas que preenchem --- */
+  .custos-grid{ flex:none; min-height:0; display:grid; grid-template-columns:1fr 1fr; gap:clamp(16px,2vw,28px); align-items:start; }
+  .custos-col{ min-height:0; display:flex; flex-direction:column; gap:clamp(10px,1.4vh,14px); }
+  .custos-col .bars{ display:flex; flex-direction:column; gap:16px; }
+  .cost-total{ margin-top:6px; padding:14px 16px; border-radius:16px; background:linear-gradient(160deg,rgba(242,169,0,.1),rgba(242,169,0,.02)); border:1px solid rgba(242,169,0,.22); display:flex; flex-direction:column; gap:6px; }
+  .ct-main{ display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; }
+  .ct-num{ font-family:var(--font-head); font-weight:800; font-size:clamp(22px,2.8vw,27px); color:var(--gold-2); font-variant-numeric:tabular-nums; letter-spacing:-.4px; }
+  .ct-lab{ font-size:11px; font-weight:600; letter-spacing:.4px; color:var(--muted); text-transform:uppercase; }
+  .ct-sub{ font-size:12.5px; color:var(--muted); }
+  .ct-sub b{ font-family:var(--font-head); color:var(--ink); font-weight:700; font-variant-numeric:tabular-nums; }
+  .calc-fixos{ display:flex; flex-direction:column; gap:9px; padding-top:14px; border-top:1px solid rgba(157,178,207,.12); }
+  .fx-row{ display:flex; justify-content:space-between; align-items:center; font-size:12.5px; color:var(--muted); }
+  .fx-row b{ font-family:var(--font-head); color:var(--ink); font-weight:700; font-variant-numeric:tabular-nums; }
+  .custos-col .calc-controls{ gap:14px; }
+
+  /* --- aba Custos: reserva firme de altura ao grafico (visivel como Panorama/Historico).
+     o grafico vira faixa fixa (~186px de host) no rodape; a grade de custos acima fica
+     flexivel e ganha scroll slim interno so se o conteudo exceder a altura da aba. --- */
+  .tabpanel[data-tab="custos"] .custos-grid{
+    flex:1 1 auto; min-height:0; align-content:start;
+    overflow-y:auto; overflow-x:hidden; padding-right:3px;
+    scrollbar-width:thin; scrollbar-color:rgba(157,178,207,.24) transparent;
+  }
+  .tabpanel[data-tab="custos"] .custos-grid::-webkit-scrollbar{ width:6px; }
+  .tabpanel[data-tab="custos"] .custos-grid::-webkit-scrollbar-thumb{ background:rgba(157,178,207,.24); border-radius:999px; }
+  .tabpanel[data-tab="custos"] .custos-grid::-webkit-scrollbar-track{ background:transparent; }
+  .tabpanel[data-tab="custos"] .pano-chart{ flex:none; }
+  .tabpanel[data-tab="custos"] .pano-chart-host{ height:186px; min-height:186px; }
+  /* densidade da calculadora p/ caber sem scroll em telas normais */
+  .tabpanel[data-tab="custos"] .custos-col .calc-controls{ gap:12px; }
+  .tabpanel[data-tab="custos"] .calc-out{ margin-top:12px; }
+  .tabpanel[data-tab="custos"] .calc-note{ margin-top:10px; }
+  .tabpanel[data-tab="custos"] .calc-fixos{ padding-top:12px; gap:7px; }
+
+  /* --- aba Histórico: log + (chart/donut) --- */
+  .hist-grid{ flex:1; min-height:0; display:grid; grid-template-columns:1.25fr 1fr; gap:clamp(16px,2vw,26px); }
+  .hist-log{ min-height:0; display:flex; flex-direction:column; gap:10px; }
+  .hist-log .log{ flex:1; overflow:hidden; }
+  .hist-side{ min-height:0; display:flex; flex-direction:column; gap:clamp(12px,1.6vh,18px); }
+  .hist-block{ display:flex; flex-direction:column; gap:8px; }
+  .hist-side .hist-block:first-child{ flex:1; min-height:0; }
+  .hist-side .hist-block:first-child #serieChart{ flex:1; min-height:110px; display:flex; }
+  .hist-side .hist-block:first-child #serieChart .chart-svg{ height:100%; }
+
+  /* ==================================================================== */
+  /* ====== PAINEL "Estado da Carol · v22" (dir; base do .perf reformulado) ===== */
+  /* ==================================================================== */
+  .perf{
+    position:relative; min-height:0; overflow:hidden;
+    background:none; border:0; border-radius:0; box-shadow:none;
+    border-top:1px solid var(--glass-line);
+    backdrop-filter:none; -webkit-backdrop-filter:none;
+    padding:clamp(12px,1.5vh,16px) 0 0;
+    margin-top:clamp(11px,1.4vh,15px);
+    display:flex; flex-direction:column; gap:clamp(9px,1.3vh,14px);
+  }
+  .perf::before{ display:none; }
+  .perf-head{ display:flex; align-items:center; justify-content:space-between; gap:10px; }
+  .perf-live{ display:inline-flex; align-items:center; gap:7px; font-family:var(--font-head);
+    font-weight:700; font-size:10px; letter-spacing:.6px; text-transform:uppercase; color:var(--ok); }
+  html.js-anim .perf-live .live{ animation:blink 1.6s ease-in-out infinite; }
+  .perf-stats{ display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  .pstat{ display:flex; flex-direction:column; gap:2px; padding:9px 12px; border-radius:12px;
+    background:rgba(8,20,38,.42); border:1px solid rgba(157,178,207,.12); }
+  .pstat-num{ font-family:var(--font-head); font-weight:800; font-size:clamp(15px,1.7vw,18px); color:var(--ink); font-variant-numeric:tabular-nums; letter-spacing:-.3px; }
+  .pstat-lab{ font-size:9.5px; font-weight:600; letter-spacing:.3px; color:var(--muted); text-transform:uppercase; }
+  #perfSpark{ height:34px; }
+  #perfSpark svg{ width:100%; height:34px; display:block; }
+
+  /* console: header compacto (logo + badge cabem sem cortar "Conversa ao vivo") */
+  .console .brand{ gap:10px; }
+  .console .brand-logo{ height:clamp(22px,2.6vh,27px); max-width:150px; }
+  .console .badge{ padding:6px 11px; font-size:11px; gap:6px; }
+  .console .tele-live{ font-size:10px; letter-spacing:.5px; }
+  /* hero da chamada = protagonista do card */
+  .console .hero-mark{ height:clamp(42px,5.4vh,56px); margin-bottom:0; }
+  .console h1{ font-size:clamp(27px,4.1vh,40px); }
+  .console .sub{ font-size:clamp(13px,1.5vh,15px); max-width:30ch; }
+  .console .fine{ font-size:11.5px; max-width:38ch; line-height:1.35; }
+  .console .stage[data-state="idle"] .view-idle,
+  .console .stage[data-state="ended"] .view-ended{ gap:clamp(6px,1.3vh,14px); }
+  .console .cta{ padding:13px 30px; font-size:clamp(15px,1.7vh,18px); }
+  /* performance = faixa secundária compacta (dá altura ao protagonista) */
+  .perf{ gap:clamp(6px,.8vh,10px); padding:clamp(10px,1.2vh,14px) 0 0; margin-top:clamp(10px,1.2vh,14px); }
+  .pstat{ padding:7px 10px; }
+  #perfSpark, #perfSpark svg{ height:26px; }
+
+  /* ---------- responsivo: mobile rola normalmente, console primeiro ---------- */
+  @media (max-width:900px){
+    body{ height:auto; overflow:visible; }
+    .wrap{ height:auto; overflow:visible; padding:clamp(14px,4vw,22px); }
+    .app{ grid-template-columns:1fr; height:auto; min-height:0; gap:clamp(16px,4vw,22px); }
+    .dash{ height:auto; overflow:visible; }
+    .console{ height:auto; overflow:visible; display:flex; flex-direction:column; order:-1; gap:14px; }
+    .console .card{ overflow:visible; }
+    .tabs-panels{ min-height:0; }
+    .tabpanel{ position:relative; inset:auto; overflow:visible; }
+    .tabpanel:not(.on){ display:none; }
+    .tab-card{ height:auto; overflow:visible; }
+    .custos-grid, .hist-grid{ grid-template-columns:1fr; }
+    .funnel{ min-height:0; }
+    /* mobile: aba Custos expande sem cap; grafico mantem altura confortavel */
+    .tabpanel[data-tab="custos"] .custos-grid{ flex:none; overflow:visible; padding-right:0; }
+    .tabpanel[data-tab="custos"] .pano-chart-host{ height:200px; min-height:200px; }
+  }
+  @media (max-width:680px){
+    .panorama-grid{ grid-template-columns:repeat(2, minmax(0,1fr)); }
+  }
+  @media (max-width:520px){
+    .calc-out{ grid-template-columns:1fr; }
+    .bar-row{ grid-template-columns:minmax(68px,88px) minmax(0,1fr) auto; }
+    .tele-ago{ margin-left:0; }
+    .perf-stats{ grid-template-columns:1fr 1fr; }
+    .funnel-row{ grid-template-columns:80px minmax(0,1fr) auto; }
+  }
+
+  @media (prefers-reduced-motion: reduce){
+    html.js-anim .reveal,
+    html.js-anim .spinner,
+    html.js-anim .equalizer span,
+    html.js-anim .stage.is-speaking .orb-ring,
+    html.js-anim .badge .dot,
+    html.js-anim .view-idle .cta,
+    html.js-anim .status .live,
+    html.js-anim .sum-seal .seal-dot,
+    html.js-anim .tele-live .live,
+    html.js-anim .tele-beat::after,
+    html.js-anim .chart-ping,
+    html.js-anim .perf-live .live,
+    html.js-anim .dash.is-loading .dcard,
+    html.js-anim .dash.is-loading .tab-card{
+      animation:none !important; opacity:1 !important; transform:none !important;
+    }
+    .equalizer span{ height:20px; }
+    .spinner{ border-top-color:var(--gold); }
+    .score-ring{ transition:none !important; }
+    .transcript{ scroll-behavior:auto; }
+    .bar-fill, .chart-line, .chart-area, .lat-seg, .funnel-fill, .tabpanel{ transition:none !important; }
+  }
+  @media print{
+    body{ height:auto; overflow:visible; background:#fff; color:#000; }
+    .wrap{ height:auto; overflow:visible; }
+    .app{ height:auto; }
+    .dash, .console{ height:auto; overflow:visible; }
+    .reveal{ opacity:1 !important; transform:none !important; animation:none !important; }
+    .dcard, .perf{ box-shadow:none; border-color:#ccc; }
+    .dash.is-loading .dcard, .dash.is-loading .tab-card{ animation:none !important; opacity:1 !important; }
+    .tabpanel{ position:relative; inset:auto; opacity:1 !important; visibility:visible !important; }
+    .bar-fill, .lat-seg, .funnel-fill{ transition:none !important; }
+    .chart-line{ stroke-dashoffset:0 !important; }
+    .chart-area{ opacity:1 !important; }
+  }
+
+  @media (max-width:420px){
+    .cta{ width:100%; justify-content:center; }
+    .badge{ font-size:11px; padding:7px 11px; }
+    .topbar{ gap:10px; }
+  }
+
+  /* ==================================================================== */
+  /* ============ seletor de período (pills) dos gráficos =============== */
+  /* ==================================================================== */
+  .seg-period{
+    display:inline-flex; gap:3px; padding:3px; border-radius:999px; flex:none;
+    background:rgba(8,20,38,.55); border:1px solid rgba(157,178,207,.14);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.03);
+  }
+  .seg-period button{
+    appearance:none; border:0; cursor:pointer; font-family:var(--font-head);
+    font-weight:700; font-size:10.5px; letter-spacing:.2px; color:var(--muted);
+    background:transparent; padding:4px 11px; border-radius:999px; line-height:1.1;
+    transition:color .18s ease, background .18s ease, box-shadow .18s ease;
+  }
+  .seg-period button:hover:not(.on){ color:var(--ink); }
+  .seg-period button.on{
+    color:#231a02; background:linear-gradient(150deg,var(--gold-2),var(--gold));
+    box-shadow:0 5px 14px -7px var(--ring);
+  }
+  .seg-period button:focus-visible{ outline:2px solid var(--gold-2); outline-offset:2px; }
+
+  /* wrapper: pills + botao de calendario alinhados */
+  .seg-wrap{ display:inline-flex; align-items:center; gap:6px; flex:none; }
+  /* botao de calendario minusculo (abre o popover de intervalo custom) */
+  .seg-cal{
+    appearance:none; cursor:pointer; flex:none;
+    display:inline-flex; align-items:center; gap:5px;
+    padding:5px 9px; border-radius:999px; line-height:1;
+    font-family:var(--font-head); font-weight:700; font-size:10.5px; letter-spacing:.2px;
+    color:var(--muted); background:rgba(8,20,38,.55);
+    border:1px solid rgba(157,178,207,.14);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.03);
+    transition:color .18s ease, background .18s ease, border-color .18s ease, box-shadow .18s ease;
+  }
+  .seg-cal svg{ width:13px; height:13px; flex:none; }
+  .seg-cal:hover{ color:var(--ink); border-color:rgba(242,169,0,.4); }
+  .seg-cal.on{
+    color:#231a02; background:linear-gradient(150deg,var(--gold-2),var(--gold));
+    border-color:transparent; box-shadow:0 5px 14px -7px var(--ring);
+  }
+  .seg-cal:focus-visible{ outline:2px solid var(--gold-2); outline-offset:2px; }
+  .seg-cal-lab{ font-variant-numeric:tabular-nums; }
+  .seg-cal-lab:empty{ display:none; }
+
+  /* popover de intervalo personalizado (fixed: nunca clipado por overflow do card) */
+  .cal-pop{
+    position:fixed; z-index:200; width:min(258px, calc(100vw - 24px));
+    padding:13px 13px 11px; border-radius:15px;
+    background:linear-gradient(162deg, rgba(19,39,67,.98), rgba(11,27,51,.98));
+    border:1px solid rgba(242,169,0,.26);
+    box-shadow:0 26px 64px -20px rgba(0,0,0,.78), inset 0 1px 0 rgba(255,255,255,.05);
+    opacity:0; transform:translateY(-6px) scale(.98); pointer-events:none;
+    transition:opacity .16s ease, transform .16s ease;
+  }
+  .cal-pop.open{ opacity:1; transform:translateY(0) scale(1); pointer-events:auto; }
+  .cal-pop-title{
+    font-family:var(--font-head); font-weight:800; font-size:10.5px; letter-spacing:.5px;
+    text-transform:uppercase; color:var(--gold-2); margin-bottom:10px;
+    display:flex; align-items:center; gap:7px;
+  }
+  .cal-pop-title svg{ width:13px; height:13px; }
+  .cal-field{ display:flex; flex-direction:column; gap:4px; margin-bottom:9px; }
+  .cal-field label{
+    font-size:9.5px; font-weight:700; letter-spacing:.4px; text-transform:uppercase; color:var(--muted);
+  }
+  .cal-field input[type="date"]{
+    appearance:none; width:100%; box-sizing:border-box;
+    background:rgba(8,20,38,.66); border:1px solid rgba(157,178,207,.18); border-radius:10px;
+    color:var(--ink); font-family:var(--font-body); font-size:12.5px; font-weight:600; padding:7px 10px;
+    color-scheme:dark; font-variant-numeric:tabular-nums;
+  }
+  .cal-field input[type="date"]:focus{ outline:none; border-color:rgba(242,169,0,.5); background:rgba(8,20,38,.82); }
+  .cal-field input[type="date"]::-webkit-calendar-picker-indicator{ filter:invert(.72) sepia(.6) saturate(4) hue-rotate(2deg); cursor:pointer; opacity:.7; }
+  .cal-row{ display:flex; gap:8px; align-items:center; margin-top:3px; }
+  .cal-apply{
+    flex:1 1 auto; cursor:pointer; border:0; border-radius:10px;
+    font-family:var(--font-head); font-weight:800; font-size:11px; letter-spacing:.3px;
+    color:#231a02; background:linear-gradient(150deg,var(--gold-2),var(--gold));
+    padding:8px 10px; box-shadow:0 8px 18px -10px var(--ring); transition:filter .16s ease;
+  }
+  .cal-apply:hover{ filter:brightness(1.06); }
+  .cal-apply:focus-visible{ outline:2px solid var(--ink); outline-offset:2px; }
+  .cal-clear{
+    flex:none; cursor:pointer; background:transparent; border:1px solid rgba(157,178,207,.2);
+    border-radius:10px; color:var(--muted); font-family:var(--font-head); font-weight:700; font-size:11px;
+    padding:8px 11px; transition:color .16s ease, border-color .16s ease;
+  }
+  .cal-clear:hover{ color:var(--ink); border-color:rgba(157,178,207,.42); }
+  .cal-clear:focus-visible{ outline:2px solid var(--gold-2); outline-offset:2px; }
+  .cal-hint{ font-size:9.5px; color:var(--muted-2); margin-top:9px; line-height:1.45; }
+  .cal-hint.cal-err{ color:#ff9d7a; }
+
+  /* o host do ECharts precisa de altura real; garante em qualquer container */
+  .pano-chart-host, #serieChart{ position:relative; }
+  #serieChart canvas, .pano-chart-host canvas{ border-radius:8px; }
+
+  /* ==================================================================== */
+  /* ============ Estado da Carol · v22 (reformula o painel .perf) ====== */
+  /* ==================================================================== */
+  .ec-head{ display:flex; align-items:center; justify-content:space-between; gap:10px; }
+  .ec-head-l{ display:inline-flex; align-items:center; gap:9px; }
+  .ec-lat{
+    padding:9px 12px; border-radius:13px; display:flex; flex-direction:column; gap:7px;
+    background:linear-gradient(160deg,rgba(242,169,0,.11),rgba(242,169,0,.02));
+    border:1px solid rgba(242,169,0,.24);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.05);
+  }
+  .ec-lat-top{ display:flex; align-items:baseline; justify-content:space-between; gap:10px; flex-wrap:wrap; }
+  .ec-lat-total{ display:flex; align-items:baseline; gap:9px; min-width:0; }
+  .ec-lat-num{
+    font-family:var(--font-head); font-weight:800; font-size:clamp(21px,2.3vw,27px);
+    color:var(--gold-2); letter-spacing:-.5px; line-height:1; font-variant-numeric:tabular-nums;
+  }
+  .ec-lat-u{ font-size:.5em; color:var(--muted); font-weight:700; margin-left:1px; }
+  .ec-lat-cap{ font-size:10.5px; color:var(--muted); font-weight:600; letter-spacing:.2px; }
+  .ec-lat-tag{ font-size:10.5px; color:var(--ok); font-weight:700; white-space:nowrap; }
+  .ec-lat-bar{ display:flex; height:12px; border-radius:999px; overflow:hidden; background:rgba(157,178,207,.1); }
+  .ec-lat-bar .seg{ height:100%; width:0; transition:width .8s cubic-bezier(.22,.61,.36,1); }
+  .ec-lat-leg{ display:flex; flex-wrap:wrap; gap:7px 14px; }
+  .ec-lat-leg .it{ display:inline-flex; align-items:center; gap:6px; font-size:11px; color:var(--muted); }
+  .ec-lat-leg .d{ width:9px; height:9px; border-radius:2px; flex:none; }
+  .ec-lat-leg b{ color:var(--ink); font-weight:700; font-variant-numeric:tabular-nums; }
+
+  .ec-cfg{ display:grid; grid-template-columns:1fr 1fr; gap:7px; }
+  .ec-cfg .chip{
+    display:flex; align-items:center; gap:8px; padding:6px 9px; border-radius:11px; min-width:0;
+    background:rgba(8,20,38,.42); border:1px solid rgba(157,178,207,.12);
+  }
+  .ec-cfg .chip .ci{
+    flex:none; width:23px; height:23px; border-radius:8px; display:grid; place-items:center;
+    background:rgba(242,169,0,.12); border:1px solid rgba(242,169,0,.28); color:var(--gold-2);
+  }
+  .ec-cfg .chip .ci svg{ width:13px; height:13px; }
+  .ec-cfg .chip .cx{ min-width:0; display:flex; flex-direction:column; gap:0; }
+  .ec-cfg .chip .ck{ font-size:8.5px; font-weight:700; letter-spacing:.4px; text-transform:uppercase; color:var(--muted); line-height:1.3; }
+  .ec-cfg .chip .cv{ font-family:var(--font-head); font-weight:700; font-size:12px; color:var(--ink); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; line-height:1.25; }
+  .ec-cfg .chip .cs{ font-size:9.5px; color:var(--muted-2); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; line-height:1.3; }
+
+  .ec-dims{ display:flex; flex-direction:column; gap:5px; }
+  /* cada dimensao = UMA linha densa: check + rotulo + badge de status.
+     a descricao longa vai para o title (tooltip no hover), fora do fluxo vertical. */
+  .ec-dim{
+    display:flex; align-items:center; gap:9px;
+    padding:6px 10px; border-radius:10px; cursor:default;
+    background:rgba(8,20,38,.34); border:1px solid rgba(157,178,207,.1);
+    transition:border-color .18s ease, background .18s ease;
+  }
+  .ec-dim:hover{ border-color:rgba(46,195,139,.34); background:rgba(8,20,38,.52); }
+  .ec-dim .ring{
+    width:19px; height:19px; border-radius:50%; flex:none;
+    display:grid; place-items:center; color:#5fe0ac;
+    background:rgba(46,195,139,.14); border:1px solid rgba(46,195,139,.5);
+  }
+  .ec-dim .ring svg{ width:12px; height:12px; }
+  .ec-dim .dn{
+    font-family:var(--font-head); font-weight:700; font-size:12px; color:var(--ink);
+    flex:1 1 auto; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  }
+  .ec-dim .dst{
+    flex:none; font-size:9.5px; font-weight:700; letter-spacing:.2px; color:var(--ok);
+    padding:2px 8px; border-radius:999px; white-space:nowrap;
+    background:rgba(46,195,139,.12); border:1px solid rgba(46,195,139,.34);
+  }
+
+  /* painel de estado = resumo denso: cap escalonado por viewport garante que o console de
+     voz (linha 1fr, piso 300px) fique com folga. Em telas altas mostra quase tudo; em
+     laptops um scroll interno slim aparece so se o conteudo exceder. */
+  .perf{ max-height:clamp(200px,38vh,470px); overflow-y:auto; overflow-x:hidden; padding-right:4px; }
+  .perf::-webkit-scrollbar{ width:6px; }
+  .perf::-webkit-scrollbar-thumb{ background:rgba(157,178,207,.24); border-radius:999px; }
+  .perf::-webkit-scrollbar-track{ background:transparent; }
+  .perf{ scrollbar-width:thin; scrollbar-color:rgba(157,178,207,.24) transparent; }
+
+  @media (prefers-reduced-motion: reduce){
+    .ec-lat-bar .seg, .seg-period button, .seg-cal, .cal-pop, .log-ring{ transition:none !important; }
+  }
+  /* mobile: coluna rola normalmente, sem cap de altura no painel de estado */
+  @media (max-width:900px){
+    .perf{ max-height:none; overflow:visible; padding-right:0; }
+    .ec-cfg{ grid-template-columns:1fr 1fr; }
+  }
+  @media (max-width:520px){
+    .ec-cfg{ grid-template-columns:1fr; }
+  }
+
+  /* ==================================================================== */
+  /* ===== Histórico clicável + Modal "card do lead score" ============== */
+  /* ===== (camada do DASHBOARD; nao toca no console de voz/Retell) ===== */
+  /* ==================================================================== */
+
+  /* cada linha do log vira botao: cursor + hover/focus + chevron de afordancia */
+  .log-row{
+    cursor:pointer; position:relative; border-radius:12px;
+    padding-right:26px;
+    transition:background .16s ease, box-shadow .16s ease;
+  }
+  .log-row::after{
+    content:""; position:absolute; right:9px; top:50%;
+    width:7px; height:7px; margin-top:-4px; border-radius:1px;
+    border-right:2px solid var(--muted-2); border-top:2px solid var(--muted-2);
+    transform:rotate(45deg); opacity:.5;
+    transition:border-color .16s ease, opacity .16s ease, right .16s ease;
+  }
+  .log-row:hover{ background:rgba(242,169,0,.07); box-shadow:inset 0 0 0 1px rgba(242,169,0,.22); }
+  .log-row:hover::after{ border-color:var(--gold-2); opacity:1; right:6px; }
+  .log-row:focus-visible{ outline:2px solid var(--gold-2); outline-offset:-2px; background:rgba(242,169,0,.07); }
+  .log-row:focus-visible::after{ border-color:var(--gold-2); opacity:1; }
+
+  /* trava o scroll do fundo enquanto o modal esta aberto */
+  body.lsm-open{ overflow:hidden; }
+
+  /* backdrop escuro + blur */
+  .lsm-overlay{
+    position:fixed; inset:0; z-index:1000;
+    display:flex; align-items:center; justify-content:center;
+    padding:clamp(14px,4vw,32px);
+    background:rgba(6,14,28,.66);
+    backdrop-filter:blur(7px) saturate(120%);
+    -webkit-backdrop-filter:blur(7px) saturate(120%);
+    opacity:0; transition:opacity .22s ease;
+    overflow-y:auto; overscroll-behavior:contain;
+  }
+  .lsm-overlay.on{ opacity:1; }
+  .lsm-overlay[hidden]{ display:none; }
+
+  /* card do lead (mesmo DNA do #resumo/.scorecard) */
+  .lsm-dialog{
+    position:relative; width:100%; max-width:560px; margin:auto;
+    background:
+      linear-gradient(180deg, rgba(15,35,64,.96), rgba(8,20,38,.97)),
+      radial-gradient(120% 90% at 85% -12%, rgba(242,169,0,.14), transparent 60%);
+    border:1px solid rgba(242,169,0,.26);
+    border-radius:22px;
+    padding:clamp(20px,4.4vw,30px);
+    box-shadow:
+      0 0 0 1px rgba(242,169,0,.10),
+      0 40px 90px -30px rgba(0,0,0,.8),
+      inset 0 1px 0 rgba(255,255,255,.06);
+    display:flex; flex-direction:column; gap:clamp(15px,3vw,21px);
+    transform:translateY(14px) scale(.975); opacity:0;
+    transition:transform .3s cubic-bezier(.22,.61,.36,1), opacity .24s ease;
+  }
+  .lsm-overlay.on .lsm-dialog{ transform:none; opacity:1; }
+
+  .lsm-close{
+    position:absolute; top:14px; right:14px; z-index:2;
+    width:36px; height:36px; border-radius:10px; cursor:pointer;
+    display:inline-flex; align-items:center; justify-content:center;
+    color:var(--muted); background:rgba(8,20,38,.6); border:1px solid rgba(157,178,207,.2);
+    transition:color .16s ease, border-color .16s ease, background .16s ease;
+  }
+  .lsm-close:hover{ color:var(--ink); border-color:rgba(242,169,0,.45); background:rgba(242,169,0,.08); }
+  .lsm-close:focus-visible{ outline:3px solid var(--gold-2); outline-offset:2px; }
+  .lsm-close svg{ width:18px; height:18px; }
+
+  .lsm-head{ display:flex; align-items:center; gap:clamp(14px,3.6vw,20px); flex-wrap:wrap; padding-right:36px; }
+  .lsm-titlewrap{ min-width:0; display:flex; flex-direction:column; gap:7px; flex:1 1 210px; }
+  .lsm-name{ font-size:clamp(20px,4.8vw,26px); line-height:1.12; }
+  .lsm-pills{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-top:1px; }
+  .lsm-sent{
+    display:inline-flex; align-items:center; gap:6px;
+    font-size:11px; font-weight:600; letter-spacing:.2px; color:var(--muted);
+    padding:3px 10px 3px 8px; border-radius:999px;
+    background:rgba(157,178,207,.09); border:1px solid rgba(157,178,207,.2);
+  }
+  .lsm-sent-dot{ width:8px; height:8px; border-radius:50%; flex:none; }
+
+  /* mini-metricas: custo / duracao / quando */
+  .lsm-stats{ display:grid; grid-template-columns:repeat(auto-fit, minmax(128px,1fr)); gap:10px; }
+  .lsm-stat{
+    display:flex; flex-direction:column; gap:3px; min-width:0;
+    padding:11px 13px; border-radius:14px;
+    background:rgba(8,20,38,.5); border:1px solid rgba(157,178,207,.14);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.03);
+  }
+  .lsm-stat-lab{ font-size:10px; font-weight:700; letter-spacing:.6px; text-transform:uppercase; color:var(--muted); }
+  .lsm-stat-val{ font-family:var(--font-head); font-weight:700; font-size:14px; color:var(--ink); font-variant-numeric:tabular-nums; overflow-wrap:anywhere; line-height:1.28; }
+
+  .lsm-dialog .sum-rows{ gap:0; }
+  .lsm-dialog .sum-rows:empty{ display:none; }
+
+  @media (max-width:560px){
+    .lsm-overlay{ padding:12px; }
+    .lsm-dialog{ max-width:none; border-radius:18px; padding:20px 18px 24px; gap:16px; }
+  }
+  @media (prefers-reduced-motion: reduce){
+    .log-row{ transition:none; }
+    .log-row::after{ transition:none; }
+    .lsm-overlay, .lsm-dialog{ transition:none !important; }
+    .lsm-dialog{ transform:none !important; }
+    .lsm-dialog .score-ring{ transition:none !important; }
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+   <div class="app">
+
+    <!-- =================================================================== -->
+    <!-- ===== ESQUERDA: dashboard operacional "Central da Carol" ========== -->
+    <!-- =================================================================== -->
+    <section class="dash" aria-label="Central da Carol">
+
+      <!-- header compacto: marca · abas · relógio + resumo, tudo numa linha -->
+      <div class="dcard tele-bar reveal" id="tele">
+        <div class="tele-brand">
+          <span class="tele-live"><span class="live" aria-hidden="true"></span> Ao vivo</span>
+          <h2 class="tele-title">Central da Carol</h2>
+        </div>
+        <div class="tabbar" role="tablist" aria-label="Seções da central">
+          <button type="button" class="tab-btn on" data-tab="panorama" role="tab" aria-selected="true">Panorama</button>
+          <button type="button" class="tab-btn" data-tab="custos" role="tab" aria-selected="false">Custos</button>
+          <button type="button" class="tab-btn" data-tab="historico" role="tab" aria-selected="false">Histórico</button>
+        </div>
+        <div class="tele-right">
+          <span class="tab-summary">
+            <span class="ts-item"><b id="tsCham">0</b> conversas</span>
+            <span class="ts-dot">·</span>
+            <span class="ts-item"><b id="tsLeads">0</b> leads</span>
+            <span class="ts-dot">·</span>
+            <span class="ts-item"><b id="tsCusto">US$ 0</b></span>
+          </span>
+          <span class="ts-dot">·</span>
+          <span class="tele-clock" id="teleClock">00:00</span>
+        </div>
+        <div class="tele-beat" id="teleBeat" aria-hidden="true"></div>
+      </div>
+
+      <div class="tabs-panels">
+
+        <!-- ============ ABA: PANORAMA ============ -->
+        <div class="tabpanel on" data-tab="panorama" role="tabpanel" aria-label="Panorama">
+          <div class="dcard tab-card reveal">
+            <span class="dash-kick">Panorama da operação</span>
+            <div class="panorama-grid">
+              <div class="kpi kpi-hero">
+                <span class="kpi-lab">Leads qualificados</span>
+                <span class="kpi-num num" id="mLeads">0</span>
+                <span class="kpi-ctx" id="mLeadsCtx">de 0 conversas</span>
+              </div>
+              <div class="kpi">
+                <span class="kpi-lab">Taxa de qualificação</span>
+                <span class="kpi-num num" id="mTaxa">0%</span>
+                <span class="kpi-ctx">conversão em lead</span>
+              </div>
+              <div class="kpi">
+                <span class="kpi-lab">Score médio</span>
+                <span class="kpi-num num" id="mScore">0</span>
+                <span class="kpi-ctx">de 100 pontos</span>
+              </div>
+              <div class="kpi">
+                <span class="kpi-lab">Custo total</span>
+                <span class="kpi-num num" id="kCusto">US$ 0,00</span>
+                <span class="kpi-delta flat" id="kCustoD" title="vs. dia anterior"></span>
+              </div>
+              <div class="kpi">
+                <span class="kpi-lab">Custo por minuto</span>
+                <span class="kpi-num num" id="kCustoMin">US$ 0,00</span>
+                <span class="kpi-ctx">voz, IA e plataforma</span>
+              </div>
+              <div class="kpi">
+                <span class="kpi-lab">Custo por lead</span>
+                <span class="kpi-num num" id="kLead">US$ 0,00</span>
+                <span class="kpi-ctx">por lead qualificado</span>
+              </div>
+              <div class="kpi">
+                <span class="kpi-lab">Chamadas</span>
+                <span class="kpi-num num" id="kCham">0</span>
+                <span class="kpi-delta flat" id="kChamD" title="vs. dia anterior"></span>
+              </div>
+              <div class="kpi">
+                <span class="kpi-lab">Minutos falados</span>
+                <span class="kpi-num num" id="kMin">0</span>
+                <span class="kpi-ctx" id="kMinCtx">em 0 conversas</span>
+              </div>
+            </div>
+
+            <div class="funnel">
+              <div class="funnel-body" id="funnelBody"><div class="chart-empty">carregando...</div></div>
+            </div>
+            <div class="pano-chart">
+              <div class="perf-lat-head"><span>Evolução de custo e volume</span>
+                <div class="seg-wrap">
+                  <div class="seg-period" role="group" aria-label="Período do gráfico">
+                    <button type="button" data-days="3" aria-pressed="false">3d</button>
+                    <button type="button" data-days="7" class="on" aria-pressed="true">7d</button>
+                    <button type="button" data-days="14" aria-pressed="false">14d</button>
+                    <button type="button" data-days="30" aria-pressed="false">30d</button>
+                  </div>
+                  <button type="button" class="seg-cal" aria-label="Escolher intervalo de datas personalizado" aria-expanded="false" title="Intervalo personalizado">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+                    <span class="seg-cal-lab"></span>
+                  </button>
+                </div>
+              </div>
+              <div id="serieChartPano" class="pano-chart-host"><div class="chart-empty">carregando...</div></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ============ ABA: CUSTOS ============ -->
+        <div class="tabpanel" data-tab="custos" role="tabpanel" aria-label="Custos">
+          <div class="dcard tab-card reveal">
+            <span class="dash-kick">Custos e projeção</span>
+            <div class="custos-grid">
+              <div class="custos-col">
+                <span class="dash-kick-sm">Custo por produto</span>
+                <div class="bars" id="prodBars"><div class="chart-empty">carregando...</div></div>
+                <div class="cost-total">
+                  <div class="ct-main"><span class="ct-num" id="ctcTotal">US$ 0</span><span class="ct-lab">custo total do período</span></div>
+                  <div class="ct-sub"><b id="ctcCham">0</b> chamadas · <b id="ctcMin">0</b> min falados</div>
+                </div>
+              </div>
+              <div class="custos-col">
+                <span class="dash-kick-sm">Calculadora de previsibilidade</span>
+                <div class="calc-controls">
+                  <div class="calc-field">
+                    <div class="calc-field-head">
+                      <span class="calc-field-label">Chamadas por mês</span>
+                      <span class="calc-field-val" id="cChamadasVal">500</span>
+                    </div>
+                    <input type="range" class="calc-range" id="cChamadas" min="50" max="3000" step="50" value="500"
+                           aria-label="Chamadas por mês" />
+                  </div>
+                  <div class="calc-field">
+                    <div class="calc-field-head">
+                      <span class="calc-field-label">Duração média (min)</span>
+                      <span class="calc-field-val" id="cDurVal">2 min</span>
+                    </div>
+                    <input type="range" class="calc-range" id="cDur" min="1" max="12" step="1" value="2"
+                           aria-label="Duração média por chamada em minutos" />
+                  </div>
+                  <div class="calc-models" role="group" aria-label="Modelo de voz">
+                    <button type="button" class="calc-model on" data-model="eleven_v3">
+                      <span class="cm-name">Voz premium</span>
+                      <span class="cm-rate" id="rateEleven">US$ 0,20/min</span>
+                      <span class="cm-note">pronúncia impecável</span>
+                    </button>
+                    <button type="button" class="calc-model" data-model="multilingual_v2">
+                      <span class="cm-name">Multilíngue</span>
+                      <span class="cm-rate">US$ 0,08/min</span>
+                      <span class="cm-note">equilíbrio</span>
+                    </button>
+                    <button type="button" class="calc-model" data-model="flash">
+                      <span class="cm-name">Flash</span>
+                      <span class="cm-rate">US$ 0,04/min</span>
+                      <span class="cm-note">mais econômico</span>
+                    </button>
+                  </div>
+                </div>
+                <div class="calc-out">
+                  <div class="calc-out-card">
+                    <span class="calc-out-num" id="calcMensal">US$ 0</span>
+                    <span class="calc-out-lab">Custo mensal projetado</span>
+                  </div>
+                  <div class="calc-out-card">
+                    <span class="calc-out-num" id="calcPorLead">US$ 0,00</span>
+                    <span class="calc-out-lab">Custo por lead projetado</span>
+                  </div>
+                </div>
+                <p class="calc-note">Variável <b id="calcVar">US$ 0</b> mais <b id="calcFixoTxt">US$ 45</b> de custos fixos mensais. A taxa de qualificação real é aplicada à projeção por lead.</p>
+                <div class="calc-fixos">
+                  <span class="dash-kick-sm">Custos fixos mensais</span>
+                  <div class="fx-row"><span>ElevenLabs (voz custom)</span><b>US$ 22</b></div>
+                  <div class="fx-row"><span>Infraestrutura n8n</span><b>US$ 15</b></div>
+                  <div class="fx-row"><span>Numero BR (telefonia)</span><b>US$ 8</b></div>
+                </div>
+              </div>
+            </div>
+            <div class="pano-chart">
+              <div class="perf-lat-head"><span>Custo e volume por dia</span>
+                <div class="seg-wrap">
+                  <div class="seg-period" role="group" aria-label="Período do gráfico">
+                    <button type="button" data-days="3" aria-pressed="false">3d</button>
+                    <button type="button" data-days="7" class="on" aria-pressed="true">7d</button>
+                    <button type="button" data-days="14" aria-pressed="false">14d</button>
+                    <button type="button" data-days="30" aria-pressed="false">30d</button>
+                  </div>
+                  <button type="button" class="seg-cal" aria-label="Escolher intervalo de datas personalizado" aria-expanded="false" title="Intervalo personalizado">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+                    <span class="seg-cal-lab"></span>
+                  </button>
+                </div>
+              </div>
+              <div id="serieChartCustos" class="pano-chart-host"><div class="chart-empty">carregando...</div></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ============ ABA: HISTÓRICO ============ -->
+        <div class="tabpanel" data-tab="historico" role="tabpanel" aria-label="Histórico">
+          <div class="dcard tab-card reveal">
+            <span class="dash-kick">Histórico e sentimento</span>
+            <div class="hist-grid">
+              <div class="hist-log">
+                <span class="dash-kick-sm">Últimas chamadas</span>
+                <div class="log" id="logRows"><div class="chart-empty">carregando...</div></div>
+                <div class="log-more" id="logMore"></div>
+              </div>
+              <div class="hist-side">
+                <div class="hist-block">
+                  <div class="perf-lat-head" style="margin-bottom:8px"><span>Custo e volume por dia</span>
+                    <div class="seg-wrap">
+                      <div class="seg-period" role="group" aria-label="Período do gráfico">
+                        <button type="button" data-days="3" aria-pressed="false">3d</button>
+                        <button type="button" data-days="7" class="on" aria-pressed="true">7d</button>
+                        <button type="button" data-days="14" aria-pressed="false">14d</button>
+                        <button type="button" data-days="30" aria-pressed="false">30d</button>
+                      </div>
+                      <button type="button" class="seg-cal" aria-label="Escolher intervalo de datas personalizado" aria-expanded="false" title="Intervalo personalizado">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+                        <span class="seg-cal-lab"></span>
+                      </button>
+                    </div>
+                  </div>
+                  <div id="serieChart"><div class="chart-empty">carregando...</div></div>
+                  <div class="chart-foot">
+                    <span class="cf-item"><span class="cf-dot cf-gold"></span> Custo</span>
+                    <span class="cf-item"><span class="cf-dot cf-mut"></span> Chamadas</span>
+                  </div>
+                </div>
+                <div class="hist-block">
+                  <span class="dash-kick-sm">Sentimento</span>
+                  <div class="donut-wrap">
+                    <div id="donutSvg"><div class="chart-empty">carregando...</div></div>
+                    <div class="donut-legend" id="donutLegend"></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- =================================================================== -->
+    <!-- ===== DIREITA: console de conversa por voz (INTACTO) ============== -->
+    <!-- =================================================================== -->
+    <div class="console">
+
+    <!-- ===== brand header (compacto, alinhado com o header da esquerda) ===== -->
+    <header class="topbar reveal">
+      <div class="brand">
+        <img class="brand-logo" src="assets/logo-baseviral.png"
+             alt="Base Viral" width="405" height="107" loading="lazy" decoding="async" />
+        <span class="badge" title="Você está falando com uma inteligência artificial">
+          <span class="dot" aria-hidden="true"></span> Assistente Virtual
+        </span>
+      </div>
+      <span class="tele-live"><span class="live" aria-hidden="true"></span> Conversa ao vivo</span>
+    </header>
+
+    <!-- ===== card / stage ===== -->
+    <main class="card reveal r2">
+
+      <!-- error banner -->
+      <div class="errbar" id="errbar" role="alert" hidden>
+        <span class="ico" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="m21.7 18-8-14a2 2 0 0 0-3.5 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.7-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
+        </span>
+        <span id="errmsg"></span>
+        <button class="x" id="errclose" type="button" aria-label="Fechar aviso">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+        </button>
+      </div>
+
+      <div class="stage" id="stage" data-state="idle">
+
+        <!-- ===== estado: ocioso ===== -->
+        <section class="view view-idle" aria-label="Iniciar chamada">
+          <img class="hero-mark" src="assets/logo-imersao.png"
+               alt="Imersão Ecossistema de Indicação" width="369" height="209" loading="lazy" decoding="async" />
+          <h1>Fale com a Carol</h1>
+          <p class="sub">Clique e converse por voz, ao vivo, direto do navegador.</p>
+          <button class="cta" id="btnStart" type="button">
+            <svg class="ico" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M6.5 3.5c.9 0 1.3.4 1.6 1.2l.8 2.1c.3.8.1 1.4-.5 1.9l-1 .9c.9 1.9 2.4 3.4 4.3 4.3l.9-1c.5-.6 1.1-.8 1.9-.5l2.1.8c.8.3 1.2.7 1.2 1.6v2.2c0 1.2-.9 2.1-2.1 2C9.3 19.9 4.1 14.7 3.5 8 3.4 6.8 4.3 5.9 5.5 5.9" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+            </svg>
+            Falar com a Carol
+          </button>
+          <p class="fine">Vamos pedir acesso ao seu microfone para a conversa por voz.</p>
+        </section>
+
+        <!-- ===== estado: conectando ===== -->
+        <section class="view view-connecting" aria-label="Conectando">
+          <div class="spinner" role="status" aria-label="Conectando"></div>
+          <h2>Chamando a Carol...</h2>
+          <p class="sub">Conectando por voz, um instante.</p>
+          <button class="btn-ghost" id="btnCancel" type="button">Cancelar</button>
+        </section>
+
+        <!-- ===== estado: em chamada ===== -->
+        <section class="view view-incall" aria-label="Chamada em andamento">
+          <div class="orb-wrap">
+            <span class="orb-ring" aria-hidden="true"></span>
+            <div class="orb">
+              <span class="orb-name">Carol</span>
+              <span class="orb-tag">Assistente Virtual</span>
+            </div>
+          </div>
+
+          <div class="equalizer" aria-hidden="true">
+            <span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+          </div>
+
+          <p class="status" id="statusLine" role="status" aria-live="polite">
+            <span class="live" aria-hidden="true"></span> Conectando
+          </p>
+          <p class="timer" id="timer">tempo de chamada <b>00:00</b></p>
+
+          <div class="transcript" id="transcript" aria-live="polite" aria-label="Transcrição ao vivo"></div>
+
+          <button class="btn-danger" id="btnEnd" type="button">
+            <svg class="ico" width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M4 9c4.5-3 11.5-3 16 0 1 .7 1 1.6.4 2.5l-1.2 1.7c-.5.7-1.3.8-2 .4l-2.1-1.3c-.6-.4-.8-.8-.8-1.5V9.6c-2-.6-4.2-.6-6.2 0v1.7c0 .7-.2 1.1-.8 1.5l-2.1 1.3c-.7.4-1.5.3-2-.4L3.6 11.5C3 10.6 3 9.7 4 9Z" fill="currentColor"/>
+            </svg>
+            Encerrar
+          </button>
+          <p class="callid" id="callid"></p>
+        </section>
+
+        <!-- ===== estado: encerrada (com resumo da ligação) ===== -->
+        <section class="view view-ended" aria-label="Resumo da ligação">
+          <div class="resumo" id="resumo" data-sum="processing">
+
+            <!-- sub-estado: processando o resumo -->
+            <div class="sum-processing">
+              <div class="spinner" role="status" aria-label="Processando resumo"></div>
+              <h2>Processando o resumo da ligação...</h2>
+              <p class="sub">A inteligência está analisando a conversa. Isso leva alguns segundos.</p>
+              <p class="callid" id="callidEnd"></p>
+            </div>
+
+            <!-- sub-estado: timeout (ainda processando) -->
+            <div class="sum-timeout">
+              <div class="check" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+              </div>
+              <h2>O resumo ainda está sendo processado</h2>
+              <p class="sub">A análise pode levar um pouco mais que o normal. Você pode buscar de novo em instantes.</p>
+              <div class="row-actions">
+                <button class="cta" id="btnRetry" type="button">Tentar de novo</button>
+                <button class="btn-ghost js-again" type="button">Ligar de novo</button>
+              </div>
+            </div>
+
+            <!-- sub-estado: sem call_id (fallback simples) -->
+            <div class="sum-basic">
+              <div class="check" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+              </div>
+              <h2>Chamada encerrada</h2>
+              <p class="sub" id="endSummary">Obrigado por falar com a Carol.</p>
+              <button class="cta js-again" type="button">Ligar de novo</button>
+            </div>
+
+            <!-- sub-estado: resumo pronto (card) -->
+            <div class="sum-ready">
+              <div class="sum-seal" id="sumSeal" hidden>
+                <span class="seal-dot" aria-hidden="true"></span>
+                Novo lead qualificado, enviado ao especialista
+              </div>
+
+              <article class="scorecard" aria-label="Resumo da ligação">
+                <header class="scorecard-head">
+                  <div class="score-ring" id="scoreRing" data-tier="unknown" role="img" aria-label="Score do lead">
+                    <div class="score-inner">
+                      <span class="score-num" id="scoreNum">--</span>
+                      <span class="score-max">de 100</span>
+                    </div>
+                  </div>
+                  <div class="scorecard-title">
+                    <span class="kicker">Resumo da ligação</span>
+                    <h2 id="sumTitle">Conversa registrada</h2>
+                  </div>
+                </header>
+
+                <div class="sum-rows" id="sumRows"></div>
+              </article>
+
+              <button class="cta js-again" type="button">Ligar de novo</button>
+              <p class="callid" id="callidReady"></p>
+            </div>
+
+          </div>
+        </section>
+
+      </div>
+    </main>
+
+    <!-- painel de ESTADO da Carol (config viva + performance da ultima atualizacao).
+         NAO faz parte do console de voz; dados de config sao constantes (v22). -->
+    <section class="perf reveal r2" aria-label="Estado da Carol">
+      <div class="ec-head">
+        <div class="ec-head-l">
+          <span class="dash-kick-sm" style="margin:0">Estado da Carol</span>
+        </div>
+        <span class="perf-live"><span class="live" aria-hidden="true"></span> config ativa</span>
+      </div>
+
+      <!-- performance da ultima atualizacao: latencia e2e p50 -->
+      <div class="ec-lat">
+        <div class="ec-lat-top">
+          <div class="ec-lat-total">
+            <span class="ec-lat-num">2,3<span class="ec-lat-u">s</span></span>
+            <span class="ec-lat-cap">resposta ponta a ponta · p50</span>
+          </div>
+          <span class="ec-lat-tag">faixa saudável 1,5 a 2,5s</span>
+        </div>
+        <div class="ec-lat-bar" id="ecLatBar" aria-hidden="true"></div>
+        <div class="ec-lat-leg" id="ecLatLeg"></div>
+      </div>
+
+      <!-- configuracao ativa (constantes v22) -->
+      <div class="ec-cfg" id="ecCfg"></div>
+
+      <!-- 5 dimensoes de validacao -->
+      <div class="ec-dims" id="ecDims"></div>
+    </section>
+
+    </div><!-- /.console -->
+   </div><!-- /.app -->
+  </div>
+
+  <!-- ===================================================================== -->
+  <!-- ===== Modal: card do lead score (dashboard; fora do console de voz) == -->
+  <!-- ===================================================================== -->
+  <div class="lsm-overlay" id="leadModal" hidden>
+    <div class="lsm-dialog" role="dialog" aria-modal="true" aria-labelledby="lsmName" aria-label="Card do lead score">
+      <button type="button" class="lsm-close" id="lsmClose" aria-label="Fechar card do lead">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+      </button>
+      <header class="lsm-head">
+        <div class="score-ring" id="lsmRing" data-tier="unknown" role="img" aria-label="Score do lead">
+          <div class="score-inner">
+            <span class="score-num" id="lsmScore">--</span>
+            <span class="score-max">de 100</span>
+          </div>
+        </div>
+        <div class="lsm-titlewrap">
+          <span class="kicker">Card do lead</span>
+          <h2 class="lsm-name" id="lsmName">Lead</h2>
+          <div class="lsm-pills" id="lsmPills"></div>
+        </div>
+      </header>
+      <div class="lsm-stats" id="lsmStats"></div>
+      <div class="sum-rows" id="lsmRows"></div>
+    </div>
+  </div>
+
+  <!-- ============================ LOGICA ============================ -->
+  <script type="module">
+    "use strict";
+
+    const WEBHOOK        = "https://n8n.bilinski.cloud/webhook/voz-web-call";
+    const WEBHOOK_RESUMO = "https://n8n.bilinski.cloud/webhook/voz-call-resumo";
+
+    /* ---- refs ---- */
+    const stage      = document.getElementById("stage");
+    const btnStart   = document.getElementById("btnStart");
+    const btnCancel  = document.getElementById("btnCancel");
+    const btnEnd     = document.getElementById("btnEnd");
+    const btnRetry   = document.getElementById("btnRetry");
+    const btnsAgain  = document.querySelectorAll(".js-again");
+    const statusLine = document.getElementById("statusLine");
+    const timerEl    = document.getElementById("timer");
+    const transcript = document.getElementById("transcript");
+    const callidEl   = document.getElementById("callid");
+    const callidEnd  = document.getElementById("callidEnd");
+    const callidReady= document.getElementById("callidReady");
+    const endSummary = document.getElementById("endSummary");
+    const resumoEl   = document.getElementById("resumo");
+    const errbar     = document.getElementById("errbar");
+    const errmsg     = document.getElementById("errmsg");
+    const errclose   = document.getElementById("errclose");
+
+    /* ---- state ---- */
+    let client = null;
+    let callId = null;
+    let startedAt = 0;
+    let timerId = null;
+    let lastTurns = 0;
+    let ending = false;
+    let pollTimer = null;
+    let pollDeadline = 0;
+    const POLL_INTERVAL_MS = 4000;
+    const POLL_TIMEOUT_MS  = 60000;
+
+    /* ---- watchdog: garante que nada fique preso invisivel ---- */
+    setTimeout(() => {
+      document.querySelectorAll(".reveal").forEach(el => {
+        el.style.opacity = "1";
+        el.style.transform = "none";
+      });
+      /* dashboard: forca numeros finais e destrava skeletons presos */
+      try { if (window.__dashFinalize) window.__dashFinalize(); } catch(_){}
+    }, 2200);
+
+    /* ---- carrega o Retell Web SDK via CDN (ESM) ---- */
+    let RetellWebClient = null;
+    try {
+      ({ RetellWebClient } = await import("https://esm.sh/retell-client-js-sdk@latest"));
+    } catch (e) {
+      // Falha de rede/CDN. Só reporta quando o usuário tentar ligar.
+      RetellWebClient = null;
+    }
+
+    /* ---- helpers de UI ---- */
+    function setState(s){ stage.dataset.state = s; }
+    function isSpeaking(on){ stage.classList.toggle("is-speaking", !!on); }
+
+    function showError(msg){
+      errmsg.textContent = msg;
+      errbar.hidden = false;
+    }
+    function clearError(){ errbar.hidden = true; errmsg.textContent = ""; }
+    errclose.addEventListener("click", clearError);
+
+    function setStatus(text, live){
+      statusLine.innerHTML = "";
+      if (live){
+        const d = document.createElement("span");
+        d.className = "live"; d.setAttribute("aria-hidden","true");
+        statusLine.appendChild(d);
+      }
+      statusLine.appendChild(document.createTextNode(" " + text));
+    }
+
+    function fmt(sec){
+      const m = Math.floor(sec/60), s = sec%60;
+      return String(m).padStart(2,"0") + ":" + String(s).padStart(2,"0");
+    }
+    function startTimer(){
+      startedAt = Date.now();
+      timerEl.innerHTML = 'tempo de chamada <b>00:00</b>';
+      clearInterval(timerId);
+      timerId = setInterval(() => {
+        const sec = Math.floor((Date.now()-startedAt)/1000);
+        timerEl.innerHTML = 'tempo de chamada <b>' + fmt(sec) + '</b>';
+      }, 1000);
+    }
+    function stopTimer(){ clearInterval(timerId); timerId = null; }
+    function elapsed(){ return startedAt ? Math.floor((Date.now()-startedAt)/1000) : 0; }
+
+    function renderTranscript(turns){
+      if (!Array.isArray(turns)) return;
+      transcript.innerHTML = "";
+      let count = 0;
+      for (const t of turns){
+        const content = (t && (t.content ?? t.transcript ?? "")).toString().trim();
+        if (!content) continue;
+        count++;
+        const role = (t && t.role) === "agent" ? "agent" : "user";
+        const row = document.createElement("div");
+        row.className = "turn turn-" + role;
+        const who = document.createElement("span");
+        who.className = "who";
+        who.textContent = role === "agent" ? "Carol" : "Você";
+        const msg = document.createElement("p");
+        msg.className = "msg";
+        msg.textContent = content;
+        row.appendChild(who); row.appendChild(msg);
+        transcript.appendChild(row);
+      }
+      lastTurns = count;
+      transcript.scrollTop = transcript.scrollHeight;
+    }
+
+    /* ---- ciclo de vida da chamada ---- */
+    function wireEvents(c){
+      c.on("call_started", () => {
+        ending = false;
+        setState("incall");
+        setStatus("Carol está ouvindo", true);
+        startTimer();
+      });
+
+      c.on("agent_start_talking", () => {
+        isSpeaking(true);
+        setStatus("Carol está falando", true);
+      });
+
+      c.on("agent_stop_talking", () => {
+        isSpeaking(false);
+        setStatus("Carol está ouvindo", true);
+      });
+
+      c.on("update", (u) => {
+        if (u && u.transcript) renderTranscript(u.transcript);
+      });
+
+      c.on("error", (err) => {
+        console.error("Retell error:", err);
+        showError("Ocorreu um erro na chamada de voz. Tente ligar novamente.");
+        finishCall();
+      });
+
+      c.on("call_ended", () => finishCall());
+    }
+
+    function cleanupClient(){
+      isSpeaking(false);
+      if (client){
+        try { if (typeof client.removeAllListeners === "function") client.removeAllListeners(); } catch(_){}
+      }
+      client = null;
+    }
+
+    function finishCall(){
+      if (ending) return;
+      ending = true;
+      stopTimer();
+      const dur = elapsed();
+      const turnTxt = lastTurns === 1 ? "1 troca" : (lastTurns + " trocas");
+      endSummary.textContent =
+        dur > 0
+          ? ("Conversa de " + fmt(dur) + " com " + turnTxt + ". Ligue de novo quando quiser.")
+          : "Chamada encerrada. Ligue de novo quando quiser.";
+      cleanupClient();
+      setState("ended");
+      startSummaryFlow();
+    }
+
+    /* ==================== resumo da ligação ==================== */
+
+    /* Dispara o fluxo assim que a chamada encerra. Sem call_id não há o que
+       consultar: cai no fallback simples. Com call_id, começa o polling. */
+    function startSummaryFlow(){
+      const idTxt = callId ? ("ID da chamada " + callId) : "";
+      callidEnd.textContent = idTxt;
+      callidReady.textContent = idTxt;
+      if (!callId){
+        resumoEl.dataset.sum = "basic";
+        return;
+      }
+      resumoEl.dataset.sum = "processing";
+      startPolling();
+    }
+
+    /* A análise da IA fica pronta quando call_analysis traz custom_analysis_data
+       com pelo menos um campo, ou ao menos o call_summary textual. */
+    function analysisReady(a){
+      if (!a || typeof a !== "object") return false;
+      const cad = a.custom_analysis_data || a.customAnalysisData;
+      if (cad && typeof cad === "object" && Object.keys(cad).length) return true;
+      if (a.call_summary && String(a.call_summary).trim()) return true;
+      return false;
+    }
+
+    function startPolling(){
+      stopPolling();
+      pollDeadline = Date.now() + POLL_TIMEOUT_MS;
+      pollOnce();
+    }
+    function stopPolling(){ clearTimeout(pollTimer); pollTimer = null; }
+
+    async function pollOnce(){
+      let data = null;
+      try {
+        const res = await fetch(WEBHOOK_RESUMO, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ call_id: callId })
+        });
+        if (res.ok) data = await res.json();
+      } catch (e){
+        // hiccup de rede: seguimos tentando até o deadline
+        console.warn("Falha ao buscar resumo (nova tentativa em breve):", e);
+      }
+
+      // se o operador já saiu do estado encerrado, aborta silenciosamente
+      if (stage.dataset.state !== "ended") return;
+
+      const analysis = data && data.call_analysis;
+      if (analysisReady(analysis)){
+        renderSummary(analysis, data);
+        resumoEl.dataset.sum = "ready";
+        return;
+      }
+      if (Date.now() >= pollDeadline){
+        resumoEl.dataset.sum = "timeout";
+        return;
+      }
+      pollTimer = setTimeout(pollOnce, POLL_INTERVAL_MS);
+    }
+
+    function retrySummary(){
+      if (!callId){ resumoEl.dataset.sum = "basic"; return; }
+      resumoEl.dataset.sum = "processing";
+      startPolling();
+    }
+
+    /* ---- coerção robusta de valores vindos da IA ---- */
+    function coerceBool(v){
+      if (v === true) return true;
+      if (v === false) return false;
+      if (typeof v === "number") return v !== 0;
+      if (typeof v === "string"){
+        const s = v.trim().toLowerCase();
+        if (["true","sim","yes","y","1"].includes(s)) return true;
+        if (["false","nao","não","no","n","0",""].includes(s)) return false;
+      }
+      return null; // desconhecido
+    }
+    function cleanStr(v){
+      if (v === null || v === undefined) return "";
+      const s = String(v).trim();
+      if (!s || s.toLowerCase() === "null" || s.toLowerCase() === "undefined") return "";
+      return s;
+    }
+    function boolLabel(b){ return b === true ? "Sim" : b === false ? "Não" : ""; }
+    function clampScore(v){
+      if (v === null || v === undefined || v === "") return null; // Number(null)===0: evita "0" falso
+      const n = Number(v);
+      if (!Number.isFinite(n)) return null;
+      return Math.max(0, Math.min(100, Math.round(n)));
+    }
+    function capFirst(s){ return s ? s.charAt(0).toUpperCase() + s.slice(1) : s; }
+    function humanize(s){ return capFirst(String(s).replace(/_/g, " ").trim()); }
+
+    /* ---- ícones inline (estilo Lucide, viewBox 24) ---- */
+    const SVG_ATTRS = 'viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"';
+    const ICONS = {
+      contato:        `<svg ${SVG_ATTRS}><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>`,
+      segmento:       `<svg ${SVG_ATTRS}><path d="M12.6 2.6A2 2 0 0 0 11.2 2H4a2 2 0 0 0-2 2v7.2a2 2 0 0 0 .6 1.4l8.7 8.7a2.4 2.4 0 0 0 3.4 0l6.6-6.6a2.4 2.4 0 0 0 0-3.4z"/><path d="M7.5 7.5h.01"/></svg>`,
+      indicacao:      `<svg ${SVG_ATTRS}><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.1a4 4 0 0 1 0 7.75"/></svg>`,
+      interesse:      `<svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="m12 2.6 2.7 5.5 6 .9-4.3 4.2 1 6-5.4-2.8-5.4 2.8 1-6L3 9l6-.9z"/></svg>`,
+      disponibilidade:`<svg ${SVG_ATTRS}><path d="M8 2v4"/><path d="M16 2v4"/><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M3 10h18"/></svg>`,
+      proximo:        `<svg ${SVG_ATTRS}><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>`,
+      resumo:         `<svg ${SVG_ATTRS}><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z"/><path d="M14 2v5h5"/><path d="M8 13h8"/><path d="M8 17h8"/></svg>`
+    };
+    const SENT_SVG = {
+      positivo: `<svg ${SVG_ATTRS}><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><path d="M9 9h.01"/><path d="M15 9h.01"/></svg>`,
+      neutro:   `<svg ${SVG_ATTRS}><circle cx="12" cy="12" r="10"/><path d="M8 15h8"/><path d="M9 9h.01"/><path d="M15 9h.01"/></svg>`,
+      negativo: `<svg ${SVG_ATTRS}><circle cx="12" cy="12" r="10"/><path d="M16 16s-1.5-2-4-2-4 2-4 2"/><path d="M9 9h.01"/><path d="M15 9h.01"/></svg>`
+    };
+    const SENT_ICO_DEFAULT = `<svg ${SVG_ATTRS}><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/></svg>`;
+
+    const PROX_LABEL = {
+      especialista_confirma: "Especialista confirma o horário da call com o Rodrigo",
+      follow_up: "Follow-up",
+      nurture: "Nutrir",
+      remover_lista: "Remover da lista (opt-out)",
+      transferir_humano: "Transferir para humano"
+    };
+    const SENT_LABEL = { positivo:"Positivo", neutro:"Neutro", negativo:"Negativo" };
+
+    /* Cria uma linha do card. Vazio + sem dash => a linha nem aparece (nunca "undefined"). */
+    function addRow(container, icon, label, value, opts){
+      opts = opts || {};
+      const v = cleanStr(value);
+      if (!v && !opts.dash) return;
+      const shown = v || "-";
+      const row = document.createElement("div");
+      row.className = "sum-row" + (opts.highlight ? " is-highlight" : "");
+      const ic = document.createElement("span");
+      ic.className = "row-ico"; ic.setAttribute("aria-hidden","true");
+      ic.innerHTML = icon;
+      const body = document.createElement("div");
+      body.className = "row-body";
+      const lab = document.createElement("span");
+      lab.className = "row-label"; lab.textContent = label;
+      const val = document.createElement("span");
+      val.className = "row-value" + (v ? "" : " is-empty");
+      val.textContent = shown;
+      body.appendChild(lab); body.appendChild(val);
+      row.appendChild(ic); row.appendChild(body);
+      container.appendChild(row);
+    }
+
+    function renderSummary(analysis, data){
+      const cad = (analysis && (analysis.custom_analysis_data || analysis.customAnalysisData)) || {};
+
+      const score       = clampScore(cad.score);
+      const interessado = coerceBool(cad.interessado);
+      const aceitou     = coerceBool(cad.aceitou_oportunidade);
+      const jaIndica    = coerceBool(cad.ja_trabalha_indicacao);
+      const optOut      = coerceBool(cad.opt_out);
+      const nome        = cleanStr(cad.nome);
+      const segmento    = cleanStr(cad.segmento);
+      const disponib    = cleanStr(cad.disponibilidade);
+      const sentimento  = cleanStr(cad.sentimento).toLowerCase();
+      const proxKey     = cleanStr(cad.proximo_passo).toLowerCase();
+      const resumo      = cleanStr(cad.resumo) || cleanStr(analysis && analysis.call_summary);
+
+      // ---- anel de score ----
+      const ring  = document.getElementById("scoreRing");
+      const numEl = document.getElementById("scoreNum");
+      if (score === null){
+        numEl.textContent = "--";
+        ring.dataset.tier = "unknown";
+        ring.style.setProperty("--pct", 0);
+      } else {
+        numEl.textContent = String(score);
+        ring.dataset.tier = score >= 70 ? "high" : score >= 40 ? "mid" : "low";
+        ring.style.setProperty("--pct", 0);
+        requestAnimationFrame(() => ring.style.setProperty("--pct", score)); // anima o preenchimento
+      }
+
+      // ---- título proporcional ao resultado ----
+      let title;
+      if (optOut === true){
+        title = "Contato pediu para sair da lista";
+      } else if (score !== null && score >= 70 && (interessado === true || aceitou === true)){
+        title = "Lead qualificado, pronto pro especialista";
+      } else if (aceitou === true || interessado === true){
+        title = "Interesse identificado na conversa";
+      } else if (score !== null && score >= 40){
+        title = "Conversa morna, vale um follow-up";
+      } else if (interessado === false || aceitou === false){
+        title = "Sem interesse neste momento";
+      } else {
+        title = "Conversa registrada";
+      }
+      document.getElementById("sumTitle").textContent = title;
+
+      // ---- selo verde: só quando interessado E aceitou forem true ----
+      document.getElementById("sumSeal").hidden = !(interessado === true && aceitou === true);
+
+      // ---- interesse (derivado de interessado / aceitou_oportunidade) ----
+      let interesseTxt = "";
+      if (aceitou === true) interesseTxt = "Aceitou a oportunidade";
+      else if (interessado === true) interesseTxt = "Demonstrou interesse";
+      else if (interessado === false || aceitou === false) interesseTxt = "Sem interesse no momento";
+
+      // ---- próximo passo traduzido ----
+      let proxTxt = "";
+      if (proxKey) proxTxt = PROX_LABEL[proxKey] || humanize(proxKey);
+      else if (optOut === true) proxTxt = PROX_LABEL.remover_lista;
+
+      // ---- sentimento ----
+      const sentTxt = SENT_LABEL[sentimento] || (sentimento ? capFirst(sentimento) : "");
+      const sentIco = SENT_SVG[sentimento] || SENT_ICO_DEFAULT;
+
+      // ---- linhas ----
+      const rows = document.getElementById("sumRows");
+      rows.innerHTML = "";
+      addRow(rows, ICONS.contato,         "Contato", nome, { dash:true });
+      addRow(rows, ICONS.segmento,        "Segmento", segmento);
+      addRow(rows, ICONS.indicacao,       "Já trabalha com indicação", boolLabel(jaIndica));
+      addRow(rows, ICONS.interesse,       "Interesse na oportunidade", interesseTxt, { highlight:true });
+      addRow(rows, ICONS.disponibilidade, "Disponibilidade", disponib);
+      addRow(rows, sentIco,               "Sentimento", sentTxt);
+      addRow(rows, ICONS.proximo,         "Próximo passo", proxTxt, { highlight:true });
+      addRow(rows, ICONS.resumo,          "Resumo", resumo);
+    }
+
+    /* ---- fluxo de início ---- */
+    async function startFlow(){
+      clearError();
+      setState("connecting");
+
+      // 1) contexto seguro + microfone disponível
+      if (!window.isSecureContext || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+        setState("idle");
+        showError("O microfone só funciona em https ou http://localhost. Sirva a página por um desses e recarregue.");
+        return;
+      }
+
+      // 2) permissão de microfone (mensagem clara se negada)
+      try {
+        const probe = await navigator.mediaDevices.getUserMedia({ audio:true });
+        probe.getTracks().forEach(t => t.stop());
+      } catch (e){
+        setState("idle");
+        const denied = e && (e.name === "NotAllowedError" || e.name === "SecurityError");
+        showError(denied
+          ? "Permissão de microfone negada. Libere o microfone para este site no navegador e tente de novo."
+          : "Não foi possível acessar o microfone. Verifique se há um microfone conectado e disponível.");
+        return;
+      }
+
+      // 3) SDK carregado?
+      if (!RetellWebClient){
+        setState("idle");
+        showError("O componente de voz não carregou. Verifique a conexão e recarregue a página.");
+        return;
+      }
+
+      // 4) token via webhook
+      let data;
+      try {
+        const res = await fetch(WEBHOOK, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: "{}"
+        });
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        data = await res.json();
+      } catch (e){
+        console.error("Token fetch error:", e);
+        setState("idle");
+        showError("Não foi possível iniciar a chamada agora. Verifique a conexão e tente novamente em instantes.");
+        return;
+      }
+
+      const accessToken = data && (data.access_token || data.accessToken);
+      callId = (data && (data.call_id || data.callId)) || null;
+      if (!accessToken){
+        setState("idle");
+        showError("A resposta do servidor não trouxe o token de acesso. Tente novamente.");
+        return;
+      }
+      callidEl.textContent = callId ? ("ID da chamada " + callId) : "";
+
+      // 5) inicia a chamada WebRTC
+      try {
+        transcript.innerHTML = "";
+        lastTurns = 0;
+        client = new RetellWebClient();
+        wireEvents(client);
+        setStatus("Conectando", false);
+        await client.startCall({ accessToken });
+        // aguarda o evento call_started para trocar de estado
+      } catch (e){
+        console.error("startCall error:", e);
+        cleanupClient();
+        setState("idle");
+        showError("Falha ao conectar a chamada de voz. Tente novamente.");
+      }
+    }
+
+    /* ---- encerrar manualmente ---- */
+    function endCall(){
+      if (client){
+        try { client.stopCall(); } catch(_){}
+        // rede de segurança: se o evento não vier, encerra a UI mesmo assim
+        setTimeout(() => { if (!ending) finishCall(); }, 1500);
+      } else {
+        finishCall();
+      }
+    }
+
+    function cancelConnecting(){
+      if (client){ try { client.stopCall(); } catch(_){} }
+      cleanupClient();
+      stopTimer();
+      ending = false;
+      setState("idle");
+    }
+
+    function resetToIdle(){
+      stopPolling();
+      ending = false;
+      callId = null;
+      transcript.innerHTML = "";
+      callidEl.textContent = "";
+      callidEnd.textContent = "";
+      callidReady.textContent = "";
+      resumoEl.dataset.sum = "processing";
+      isSpeaking(false);
+      setState("idle");
+    }
+
+    /* ---- bindings ---- */
+    btnStart.addEventListener("click", startFlow);
+    btnCancel.addEventListener("click", cancelConnecting);
+    btnEnd.addEventListener("click", endCall);
+    btnRetry.addEventListener("click", retrySummary);
+    btnsAgain.forEach(b => b.addEventListener("click", resetToIdle));
+
+    // encerra a chamada se a aba for fechada
+    window.addEventListener("beforeunload", () => { if (client){ try { client.stopCall(); } catch(_){} } });
+  </script>
+
+  <!-- ===================================================================== -->
+  <!-- ===== DASHBOARD "Central da Carol" (independente do Retell) ========= -->
+  <!-- ===================================================================== -->
+  <script>
+  (function(){
+    "use strict";
+
+    /* Fonte de dados real (ver CONTRATO-DASHBOARD.md). Poll a cada 12s. */
+    const ENDPOINT    = "https://n8n.bilinski.cloud/webhook/voz-dashboard-data";
+    const INTERVAL_MS = 12000;
+
+    /* Custos fixos mensais em US$ (editavel pelo operador — valores do contrato). */
+    const CUSTOS_FIXOS = {
+      "ElevenLabs (voz custom)": 22,
+      "VPS n8n (fracao)":        15,
+      "Numero BR (SIP, futuro)":  8,
+      "Retell concorrencia extra": 0
+    };
+    const FIXOS_TOTAL = Object.keys(CUSTOS_FIXOS).reduce((a,k)=>a+CUSTOS_FIXOS[k],0);
+
+    /* Estimativa de custo por minuto por modelo de voz (US$/min).
+       eleven_v3 usa a taxa REAL medida; os demais sao referencias de trade-off. */
+    const MODELOS = {
+      eleven_v3:       { rate:0.20 },
+      multilingual_v2: { rate:0.08 },
+      flash:           { rate:0.04 }
+    };
+
+    const jsAnim = document.documentElement.classList.contains("js-anim");
+    const prefersReduced = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+    const fmtUSD  = new Intl.NumberFormat("pt-BR",{ style:"currency", currency:"USD", minimumFractionDigits:2, maximumFractionDigits:2 });
+    const fmtUSD0 = new Intl.NumberFormat("pt-BR",{ style:"currency", currency:"USD", maximumFractionDigits:0 });
+    const fmtNum  = new Intl.NumberFormat("pt-BR");
+    const fmtNum1 = new Intl.NumberFormat("pt-BR",{ maximumFractionDigits:1 });
+
+    const $ = (id)=>document.getElementById(id);
+    const dashEl = document.querySelector(".dash");
+
+    /* ---------- count-up (800ms, easeOutCubic, tabular-nums) ---------- */
+    const _numEls = new Set();
+    function easeOutCubic(t){ return 1 - Math.pow(1-t,3); }
+    function countUp(el, to, fmtFn){
+      if (!el) return;
+      to = Number(to) || 0;
+      _numEls.add(el);
+      el._fmt = fmtFn; el._target = to; el._finalText = fmtFn(to);
+      const from = Number(el._val || 0);
+      if (!jsAnim || prefersReduced || from === to){
+        el._val = to; el.textContent = el._finalText; return;
+      }
+      if (el._raf) cancelAnimationFrame(el._raf);
+      const dur = 800, t0 = performance.now();
+      function tick(now){
+        const p = Math.min(1, (now - t0)/dur);
+        el.textContent = fmtFn(from + (to - from)*easeOutCubic(p));
+        if (p < 1){ el._raf = requestAnimationFrame(tick); }
+        else { el._val = to; el.textContent = el._finalText; el._raf = null; }
+      }
+      el._raf = requestAnimationFrame(tick);
+    }
+    function finalizeNums(){
+      _numEls.forEach(el=>{
+        if (el._raf){ cancelAnimationFrame(el._raf); el._raf = null; }
+        if (el._finalText != null){ el.textContent = el._finalText; el._val = el._target; }
+      });
+    }
+
+    /* ---------- helpers ---------- */
+    function escapeHtml(s){
+      return String(s).replace(/[&<>"']/g, m=>({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[m]));
+    }
+    function humanizeProd(s){
+      let out = String(s || "").replace(/_/g," ").trim();
+      out = out.replace(/\b\w/g, c=>c.toUpperCase());
+      out = out.replace(/\bTts\b/g,"TTS").replace(/\bLlm\b/g,"LLM")
+               .replace(/\bGpt\b/g,"GPT").replace(/\bApi\b/g,"API")
+               .replace(/\bV(\d)/g,"v$1");
+      return out;
+    }
+    function relTime(ts){
+      const diff = Date.now() - Number(ts || 0);
+      if (!ts || isNaN(diff)) return "";
+      if (diff < 45000) return "agora";
+      const s = Math.floor(diff/1000);
+      const m = Math.floor(s/60); if (m < 60) return "ha " + m + " min";
+      const h = Math.floor(m/60); if (h < 24) return "ha " + h + " h";
+      const d = Math.floor(h/24); if (d < 30) return "ha " + d + " d";
+      const mo = Math.floor(d/30); return "ha " + mo + (mo>1 ? " meses" : " mes");
+    }
+    function fmtDur(sec){
+      sec = Math.round(Number(sec) || 0);
+      const m = Math.floor(sec/60), s = sec % 60;
+      return m + ":" + String(s).padStart(2,"0");
+    }
+
+    /* chevrons (nao-emoji, estilo Lucide) para os deltas */
+    const CHEV = {
+      up: '<svg class="dico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m18 15-6-6-6 6"/></svg>',
+      dn: '<svg class="dico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>'
+    };
+
+    /* ---------- estado ---------- */
+    let realRatePerMin = 0.20;   // atualizado com custo_medio_min real
+    let realTaxa       = 0.09;   // taxa_qualificacao real
+    let calcModel      = "eleven_v3";
+    let lastUpdate     = 0;
+    let firstOK        = false;
+    let pollTimer      = null;
+
+    /* ---------- render: totais ---------- */
+    function renderTotais(t, serie){
+      countUp($("mLeads"),   t.leads_qualificados,          v=>fmtNum.format(Math.round(v)));
+      countUp($("mTaxa"),    (Number(t.taxa_qualificacao)||0)*100, v=>fmtNum1.format(v) + "%");
+      countUp($("mScore"),   t.score_medio,                 v=>fmtNum.format(Math.round(v)));
+      countUp($("kCusto"),   t.custo_total_usd,             v=>fmtUSD.format(v));
+      countUp($("kCustoMin"),t.custo_medio_min_usd,         v=>fmtUSD.format(v));
+      countUp($("kLead"),    t.custo_por_lead_usd,          v=>fmtUSD.format(v));
+      countUp($("kCham"),    t.chamadas,                    v=>fmtNum.format(Math.round(v)));
+      countUp($("kMin"),     t.minutos,                     v=>fmtNum1.format(v));
+      { const e=$("ctcTotal"); if(e) e.textContent=fmtUSD.format(Number(t.custo_total_usd)||0); }
+      { const e=$("ctcCham"); if(e) e.textContent=fmtNum.format(Math.round(Number(t.chamadas)||0)); }
+      { const e=$("ctcMin"); if(e) e.textContent=fmtNum1.format(Number(t.minutos)||0); }
+      { const e=$("tsCham"); if(e) e.textContent=fmtNum.format(Math.round(Number(t.chamadas)||0)); }
+      { const e=$("tsLeads"); if(e) e.textContent=fmtNum.format(Math.round(Number(t.leads_qualificados)||0)); }
+      { const e=$("tsCusto"); if(e) e.textContent=fmtUSD.format(Number(t.custo_total_usd)||0); }
+      renderDelta($("kCustoD"), serieDelta(serie,"custo"),    false); // custo subindo = ruim (vermelho)
+      renderDelta($("kChamD"),  serieDelta(serie,"chamadas"), true);  // mais chamadas = bom (verde)
+      // contexto dinamico (preenche os cards, sem espaco vazio)
+      const ch = Math.round(Number(t.chamadas) || 0);
+      const chTxt = fmtNum.format(ch);
+      if ($("mLeadsCtx")) $("mLeadsCtx").textContent = "de " + chTxt + " conversas";
+      if ($("kMinCtx"))   $("kMinCtx").textContent   = "em " + chTxt + " conversas";
+    }
+    function serieDelta(serie, key){
+      if (!Array.isArray(serie) || serie.length < 2) return null;
+      const a = Number(serie[serie.length-2][key]);
+      const b = Number(serie[serie.length-1][key]);
+      if (!a || !isFinite(a)) return null;
+      return (b - a) / a;
+    }
+    function renderDelta(el, pct, goodWhenUp){
+      if (!el) return;
+      if (pct === null || !isFinite(pct)){ el.className = "kpi-delta flat"; el.textContent = ""; return; }
+      const up = pct >= 0;
+      const flat = Math.abs(pct) < 0.005;
+      const good = goodWhenUp ? up : !up;
+      el.className = "kpi-delta " + (flat ? "flat" : (good ? "up-good" : "up-bad"));
+      // serie diaria e irregular: clampa a magnitude para nao exibir % absurdo
+      const mag = Math.abs(pct)*100;
+      const label = mag > 200 ? "200%+" : (fmtNum1.format(mag) + "%");
+      el.innerHTML = (up ? CHEV.up : CHEV.dn) + "<span>" + label + "</span>";
+    }
+
+    /* ---------- render: breakdown por produto ---------- */
+    function renderProdBars(prods){
+      const host = $("prodBars");
+      if (!host) return;
+      const top = (prods || []).filter(p=>Number(p.custo_usd) > 0).slice(0,8);
+      if (!top.length){ host.innerHTML = '<div class="chart-empty">Sem custo por produto ainda.</div>'; return; }
+      const max = Math.max.apply(null, top.map(p=>Number(p.custo_usd)));
+      host.innerHTML = "";
+      top.forEach(p=>{
+        const pct = Math.max(3, (Number(p.custo_usd)/max)*100);
+        const nome = humanizeProd(p.product);
+        const row = document.createElement("div"); row.className = "bar-row";
+        row.innerHTML =
+          '<span class="bar-name" title="'+escapeHtml(nome)+'">'+escapeHtml(nome)+'</span>'+
+          '<span class="bar-track"><span class="bar-fill" data-w="'+pct.toFixed(1)+'"></span></span>'+
+          '<span class="bar-val">'+fmtUSD.format(Number(p.custo_usd))+'</span>';
+        host.appendChild(row);
+      });
+      const fills = host.querySelectorAll(".bar-fill");
+      if (jsAnim && !prefersReduced){
+        requestAnimationFrame(()=> fills.forEach(f=>{ f.style.width = f.dataset.w + "%"; }));
+      } else {
+        fills.forEach(f=>{ f.style.width = f.dataset.w + "%"; });
+      }
+    }
+
+    /* ================================================================ */
+    /* ===== serie temporal: ECharts dual-axis (fallback SVG) ========= */
+    /* ================================================================ */
+    /* estado da serie + periodo (pills 7d / 14d / 30d / Tudo) */
+    let _serieFull = [];
+    let _period    = 7;              /* numero de dias, "all", ou "custom" */
+    let _customFrom = null;          /* range custom "YYYY-MM-DD" (inclusive) */
+    let _customTo   = null;
+    let _closeCalPop = function(){}; /* atribuido por wireCalPopover() */
+    const _charts  = new Set();       /* instancias ECharts (p/ resize) */
+
+    /* "2026-07-21" -> "21/07" */
+    function fmtDayLabel(t){
+      if (!t) return "";
+      const m = String(t).match(/(\d{4})-(\d{2})-(\d{2})/);
+      if (m) return m[3] + "/" + m[2];
+      const d = new Date(t);
+      if (!isNaN(d.getTime())) return String(d.getDate()).padStart(2,"0")+"/"+String(d.getMonth()+1).padStart(2,"0");
+      return String(t);
+    }
+
+    /* host mensuravel? (evita init do ECharts em aba display:none no mobile) */
+    function measurable(el){ return !!el && el.offsetWidth > 4 && el.offsetHeight > 4; }
+
+    /* option premium do ECharts (dual-axis: custo US$ esq. / chamadas dir.) */
+    function serieOption(serie){
+      const dates = serie.map(d=> fmtDayLabel(d.t));
+      const custo = serie.map(d=> Number(d.custo)||0);
+      const cham  = serie.map(d=> Number(d.chamadas)||0);
+      const gold  = "#F2A900", gold2 = "#ffc24d", blue = "#7FA6D9";
+      return {
+        backgroundColor:"transparent",
+        animationDuration:850, animationEasing:"cubicOut",
+        grid:{ left:8, right:10, top:24, bottom:6, containLabel:true },
+        legend:{
+          data:["Custo","Chamadas"], top:0, left:"center", itemGap:18, itemWidth:14, itemHeight:8,
+          textStyle:{ color:"rgba(157,178,207,.8)", fontFamily:"Inter, sans-serif", fontSize:10.5 },
+          inactiveColor:"rgba(157,178,207,.28)"
+        },
+        tooltip:{
+          trigger:"axis",
+          backgroundColor:"rgba(10,22,40,.95)", borderColor:"rgba(242,169,0,.35)", borderWidth:1,
+          padding:[9,12], extraCssText:"box-shadow:0 12px 34px -12px rgba(0,0,0,.7);border-radius:12px;",
+          textStyle:{ color:"#EAF0F8", fontFamily:"Inter, sans-serif", fontSize:12 },
+          axisPointer:{ type:"line", lineStyle:{ color:"rgba(242,169,0,.45)", width:1, type:"dashed" } },
+          formatter:function(p){
+            if (!p || !p.length) return "";
+            const i = p[0].dataIndex;
+            return '<div style="font-family:Sora,sans-serif;font-weight:700;font-size:12px;color:#fff;margin-bottom:6px;letter-spacing:.3px">'+ p[0].axisValue +'</div>'+
+              '<div style="display:flex;align-items:center;gap:8px;font-size:12px;color:#EAF0F8;line-height:1.75"><span style="width:9px;height:9px;border-radius:50%;background:'+gold+';box-shadow:0 0 6px rgba(242,169,0,.7);display:inline-block"></span>Custo<b style="margin-left:auto;padding-left:16px;font-variant-numeric:tabular-nums">'+ fmtUSD.format(custo[i]) +'</b></div>'+
+              '<div style="display:flex;align-items:center;gap:8px;font-size:12px;color:#EAF0F8;line-height:1.75"><span style="width:9px;height:9px;border-radius:2px;background:'+blue+';display:inline-block"></span>Chamadas<b style="margin-left:auto;padding-left:16px;font-variant-numeric:tabular-nums">'+ fmtNum.format(cham[i]) +'</b></div>';
+          }
+        },
+        xAxis:{
+          type:"category", data:dates, boundaryGap:false,
+          axisLine:{ lineStyle:{ color:"rgba(157,178,207,.18)" } },
+          axisTick:{ show:false },
+          axisLabel:{ color:"rgba(157,178,207,.6)", fontSize:10, fontFamily:"Inter, sans-serif", hideOverlap:true, margin:10 }
+        },
+        yAxis:[
+          { type:"value", position:"left", scale:false, minInterval:0,
+            axisLabel:{ color:"rgba(157,178,207,.5)", fontSize:10, fontFamily:"Inter, sans-serif",
+              formatter:function(v){ return v>=1000 ? "$"+(v/1000).toFixed(1)+"k" : "$"+(Math.round(v*100)/100); } },
+            splitLine:{ lineStyle:{ color:"rgba(157,178,207,.08)" } },
+            axisLine:{ show:false }, axisTick:{ show:false } },
+          { type:"value", position:"right",
+            axisLabel:{ color:"rgba(127,166,217,.6)", fontSize:10, fontFamily:"Inter, sans-serif" },
+            splitLine:{ show:false }, axisLine:{ show:false }, axisTick:{ show:false } }
+        ],
+        series:[
+          { name:"Custo", type:"line", yAxisIndex:0, data:custo, smooth:0.35,
+            showSymbol:false, symbol:"circle", symbolSize:7, z:3,
+            lineStyle:{ color:gold, width:2.6, shadowColor:"rgba(242,169,0,.5)", shadowBlur:12 },
+            itemStyle:{ color:gold2, borderColor:gold, borderWidth:2 },
+            emphasis:{ focus:"series", scale:1.25 },
+            areaStyle:{ color:new echarts.graphic.LinearGradient(0,0,0,1,[
+              { offset:0, color:"rgba(242,169,0,.34)" },
+              { offset:1, color:"rgba(242,169,0,0)" }
+            ]) } },
+          { name:"Chamadas", type:"line", yAxisIndex:1, data:cham, smooth:0.35,
+            showSymbol:false, symbol:"circle", symbolSize:6, z:2,
+            lineStyle:{ color:blue, width:1.8, type:[5,4] },
+            itemStyle:{ color:blue }, emphasis:{ focus:"series" } }
+        ]
+      };
+    }
+
+    function disposeChart(host){
+      if (window.echarts && typeof echarts.getInstanceByDom === "function"){
+        const inst = echarts.getInstanceByDom(host);
+        if (inst){ _charts.delete(inst); inst.dispose(); }
+      }
+    }
+
+    function renderSerieEcharts(host, serie){
+      if (!measurable(host)) return;      /* aba oculta (mobile): renderiza ao ativar */
+      let inst = echarts.getInstanceByDom(host);
+      if (!inst){
+        host.innerHTML = "";              /* limpa "carregando..." ou SVG anterior */
+        inst = echarts.init(host, null, { renderer:"canvas" });
+        _charts.add(inst);
+      }
+      inst.setOption(serieOption(serie), true);
+      try { inst.resize(); } catch(_){}
+    }
+
+    /* FALLBACK FAIL-SAFE: SVG corrigido (proporcao real via meet, com eixos/escala) */
+    function renderSerieSvg(host, serie){
+      const W=560, H=210, padL=46, padR=42, padT=16, padB=28;
+      const iw=W-padL-padR, ih=H-padT-padB, n=serie.length;
+      const costs = serie.map(d=> Number(d.custo)||0);
+      const calls = serie.map(d=> Number(d.chamadas)||0);
+      const maxCost  = Math.max.apply(null, costs.concat([0.001]));
+      const maxCalls = Math.max.apply(null, calls.concat([1]));
+      const x  = i => padL + (n===1 ? iw/2 : (i/(n-1))*iw);
+      const yC = v => padT + ih - (v/maxCost)*ih;
+      const yK = v => padT + ih - (v/maxCalls)*ih;
+      let grid="", ylab="", yr="";
+      for (let g=0; g<=4; g++){
+        const yy = padT + (g/4)*ih;
+        grid += '<line x1="'+padL+'" y1="'+yy.toFixed(1)+'" x2="'+(W-padR)+'" y2="'+yy.toFixed(1)+'" stroke="rgba(157,178,207,0.09)" stroke-width="1"/>';
+        const vc = maxCost*(1-g/4);
+        ylab += '<text x="'+(padL-8)+'" y="'+(yy+3).toFixed(1)+'" text-anchor="end" fill="rgba(157,178,207,.55)" font-family="Inter,sans-serif" font-size="9">'+ (vc>=1000?"$"+(vc/1000).toFixed(1)+"k":"$"+(Math.round(vc*100)/100)) +'</text>';
+        const vk = maxCalls*(1-g/4);
+        yr += '<text x="'+(W-padR+8)+'" y="'+(yy+3).toFixed(1)+'" text-anchor="start" fill="rgba(127,166,217,.55)" font-family="Inter,sans-serif" font-size="9">'+ Math.round(vk) +'</text>';
+      }
+      let xlab="";
+      const idxs = n<=1 ? [0] : [0, Math.floor((n-1)/2), n-1];
+      idxs.forEach(i=>{ xlab += '<text x="'+x(i).toFixed(1)+'" y="'+(H-8)+'" text-anchor="middle" fill="rgba(157,178,207,.55)" font-family="Inter,sans-serif" font-size="9">'+ fmtDayLabel(serie[i].t) +'</text>'; });
+      const linePath = "M" + serie.map((d,i)=> x(i).toFixed(1)+","+yC(costs[i]).toFixed(1)).join(" L");
+      const areaPath = linePath + " L"+x(n-1).toFixed(1)+","+(padT+ih).toFixed(1)+" L"+x(0).toFixed(1)+","+(padT+ih).toFixed(1)+" Z";
+      const callPath = "M" + serie.map((d,i)=> x(i).toFixed(1)+","+yK(calls[i]).toFixed(1)).join(" L");
+      const lx = x(n-1).toFixed(1), ly = yC(costs[n-1]).toFixed(1);
+      host.innerHTML =
+        '<svg class="chart-svg" viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Evolução de custo e volume por dia">'+
+          '<defs><linearGradient id="gArea" x1="0" y1="0" x2="0" y2="1">'+
+            '<stop offset="0" stop-color="rgba(242,169,0,0.30)"/>'+
+            '<stop offset="1" stop-color="rgba(242,169,0,0)"/>'+
+          '</linearGradient></defs>'+
+          grid+ylab+yr+xlab+
+          '<path class="chart-area in" d="'+areaPath+'" fill="url(#gArea)"/>'+
+          '<path class="chart-calls" d="'+callPath+'" fill="none" stroke="rgba(127,166,217,0.62)" stroke-width="1.6" stroke-dasharray="4 3" vector-effect="non-scaling-stroke"/>'+
+          '<path class="chart-line" d="'+linePath+'" fill="none" stroke="#F2A900" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>'+
+          '<circle cx="'+lx+'" cy="'+ly+'" r="3.2" fill="#ffc24d"/>'+
+        '</svg>';
+      const line = host.querySelector(".chart-line");
+      if (line){
+        let len = 600; try { len = line.getTotalLength(); } catch(_){}
+        line.style.strokeDasharray = len;
+        if (jsAnim && !prefersReduced){
+          line.style.strokeDashoffset = len; line.getBoundingClientRect();
+          requestAnimationFrame(()=>{ line.style.strokeDashoffset = "0"; });
+        } else { line.style.strokeDashoffset = "0"; }
+      }
+    }
+
+    /* ponto de entrada: escolhe ECharts (premium) ou SVG (fail-safe) */
+    function renderSerieChart(serie, hostId){
+      const host = $(hostId || "serieChart");
+      if (!host) return;
+      if (!Array.isArray(serie) || !serie.length){
+        disposeChart(host);
+        host.innerHTML = '<div class="chart-empty">Sem série de custo ainda.</div>'; return;
+      }
+      if (window.echarts && typeof echarts.init === "function"){
+        renderSerieEcharts(host, serie);
+      } else {
+        renderSerieSvg(host, serie);
+      }
+    }
+
+    /* recorta a serie pelo periodo e re-renderiza os 3 hosts */
+    function sliceSerie(){
+      if (!Array.isArray(_serieFull)) return [];
+      if (_period === "all") return _serieFull.slice();
+      if (_period === "custom" && _customFrom && _customTo){
+        return _serieFull.filter(function(d){
+          const t = String(d.t || "").slice(0,10);
+          return t && t >= _customFrom && t <= _customTo;   /* ISO: comparacao lexicografica = cronologica */
+        });
+      }
+      return _serieFull.slice(Math.max(0, _serieFull.length - _period));
+    }
+    /* limites de data disponiveis (1o e ultimo item da serie; fallback: ultimos 30 dias) */
+    function serieBounds(){
+      const toISO = function(dt){ return dt.toISOString().slice(0,10); };
+      const today = new Date();
+      let max = toISO(today);
+      let min = toISO(new Date(today.getTime() - 29*864e5));
+      if (Array.isArray(_serieFull) && _serieFull.length){
+        const ts = _serieFull.map(function(d){ return String(d.t || "").slice(0,10); })
+                             .filter(Boolean).sort();
+        if (ts.length){ min = ts[0]; max = ts[ts.length - 1]; }
+      }
+      return { min:min, max:max };
+    }
+    /* sincroniza os 3 botoes de calendario (estado ativo + rotulo do range) */
+    function updateCalButtons(){
+      const active = (_period === "custom" && _customFrom && _customTo);
+      const txt = active ? (fmtDayLabel(_customFrom) + "-" + fmtDayLabel(_customTo)) : "";
+      document.querySelectorAll(".seg-cal").forEach(function(b){
+        b.classList.toggle("on", active);
+        b.setAttribute("aria-pressed", active ? "true" : "false");
+        const lab = b.querySelector(".seg-cal-lab");
+        if (lab) lab.textContent = txt;
+      });
+    }
+    function renderAllSeries(){
+      if (!_serieFull.length) return;     /* antes do 1o dado: mantem placeholders */
+      const s = sliceSerie();
+      renderSerieChart(s, "serieChartPano");
+      renderSerieChart(s, "serieChartCustos");
+      renderSerieChart(s, "serieChart");
+    }
+    function wireSeriePeriod(){
+      document.querySelectorAll(".seg-period").forEach(function(grp){
+        grp.querySelectorAll("button").forEach(function(btn){
+          btn.addEventListener("click", function(){
+            const d = btn.dataset.days;
+            _period = (d === "all") ? "all" : Number(d);
+            _customFrom = _customTo = null;    /* volta ao modo periodo normal */
+            document.querySelectorAll(".seg-period button").forEach(function(b){
+              const on = b.dataset.days === d;
+              b.classList.toggle("on", on);
+              b.setAttribute("aria-pressed", on ? "true" : "false");
+            });
+            updateCalButtons();                 /* limpa o estado ativo do calendario */
+            _closeCalPop();
+            renderAllSeries();
+          });
+        });
+      });
+    }
+
+    /* seletor de intervalo personalizado: 1 popover compartilhado (sincroniza as 3 abas) */
+    function wireCalPopover(){
+      const pop = document.createElement("div");
+      pop.className = "cal-pop";
+      pop.setAttribute("role", "dialog");
+      pop.setAttribute("aria-label", "Intervalo personalizado de datas");
+      pop.innerHTML =
+        '<div class="cal-pop-title">'+
+          '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>'+
+          'Intervalo personalizado</div>'+
+        '<div class="cal-field"><label for="calFrom">De</label><input type="date" id="calFrom"></div>'+
+        '<div class="cal-field"><label for="calTo">Até</label><input type="date" id="calTo"></div>'+
+        '<div class="cal-row">'+
+          '<button type="button" class="cal-apply">Aplicar</button>'+
+          '<button type="button" class="cal-clear">Limpar</button>'+
+        '</div>'+
+        '<div class="cal-hint" id="calHint">Escolha um intervalo dentro dos dados disponíveis.</div>';
+      document.body.appendChild(pop);
+
+      const inFrom = pop.querySelector("#calFrom");
+      const inTo   = pop.querySelector("#calTo");
+      const hint   = pop.querySelector("#calHint");
+      let anchor = null;
+
+      function setHint(msg, err){
+        hint.textContent = msg;
+        hint.classList.toggle("cal-err", !!err);
+      }
+      function positionPop(){
+        if (!anchor) return;
+        const prevOpen = pop.classList.contains("open");
+        pop.style.visibility = "hidden";
+        if (!prevOpen){ pop.style.opacity = "0"; pop.classList.add("open"); }
+        const pw = pop.offsetWidth, ph = pop.offsetHeight;
+        if (!prevOpen){ pop.classList.remove("open"); pop.style.opacity = ""; }
+        const r = anchor.getBoundingClientRect();
+        const M = 12;
+        let left = r.right - pw;                 /* alinha a borda direita do botao */
+        if (left < M) left = M;
+        if (left + pw > window.innerWidth - M) left = Math.max(M, window.innerWidth - M - pw);
+        let top = r.bottom + 8;
+        if (top + ph > window.innerHeight - M){  /* nao cabe abaixo: abre p/ cima */
+          const up = r.top - 8 - ph;
+          top = up >= M ? up : Math.max(M, window.innerHeight - M - ph);
+        }
+        pop.style.left = left + "px";
+        pop.style.top  = top + "px";
+        pop.style.visibility = "";
+      }
+      function openPop(btn){
+        anchor = btn;
+        const b = serieBounds();
+        inFrom.min = b.min; inFrom.max = b.max;
+        inTo.min   = b.min; inTo.max   = b.max;
+        inFrom.value = _customFrom || b.min;
+        inTo.value   = _customTo   || b.max;
+        setHint("Escolha um intervalo dentro dos dados disponíveis.", false);
+        positionPop();
+        pop.classList.add("open");
+        document.querySelectorAll(".seg-cal").forEach(function(x){
+          x.setAttribute("aria-expanded", x === btn ? "true" : "false");
+        });
+      }
+      function closePop(){
+        if (!pop.classList.contains("open")) return;
+        pop.classList.remove("open");
+        anchor = null;
+        document.querySelectorAll(".seg-cal").forEach(function(x){ x.setAttribute("aria-expanded", "false"); });
+      }
+      _closeCalPop = closePop;
+
+      document.querySelectorAll(".seg-cal").forEach(function(btn){
+        btn.addEventListener("click", function(e){
+          e.stopPropagation();
+          if (pop.classList.contains("open") && anchor === btn) closePop();
+          else openPop(btn);
+        });
+      });
+
+      pop.addEventListener("click", function(e){ e.stopPropagation(); });
+
+      pop.querySelector(".cal-apply").addEventListener("click", function(){
+        let from = inFrom.value, to = inTo.value;
+        if (!from || !to){ setHint("Selecione as duas datas (De e Até).", true); return; }
+        if (from > to){ const t = from; from = to; to = t; }   /* corrige suavemente */
+        const b = serieBounds();
+        if (from < b.min) from = b.min;
+        if (to   > b.max) to   = b.max;
+        _period = "custom"; _customFrom = from; _customTo = to;
+        document.querySelectorAll(".seg-period button").forEach(function(x){
+          x.classList.remove("on"); x.setAttribute("aria-pressed", "false");
+        });
+        updateCalButtons();
+        renderAllSeries();
+        closePop();
+      });
+
+      pop.querySelector(".cal-clear").addEventListener("click", function(){
+        _customFrom = _customTo = null; _period = 7;
+        document.querySelectorAll(".seg-period button").forEach(function(x){
+          const on = x.dataset.days === "7";
+          x.classList.toggle("on", on); x.setAttribute("aria-pressed", on ? "true" : "false");
+        });
+        updateCalButtons();
+        renderAllSeries();
+        closePop();
+      });
+
+      document.addEventListener("click", function(){ closePop(); });
+      document.addEventListener("keydown", function(e){ if (e.key === "Escape") closePop(); });
+      window.addEventListener("resize", function(){ if (pop.classList.contains("open")) positionPop(); });
+      window.addEventListener("scroll", function(){ if (pop.classList.contains("open")) positionPop(); }, true);
+    }
+    /* resize responsivo das instancias ECharts */
+    let _rzTimer = null;
+    window.addEventListener("resize", function(){
+      clearTimeout(_rzTimer);
+      _rzTimer = setTimeout(function(){
+        _charts.forEach(function(c){ try{ if (c && !c.isDisposed()) c.resize(); }catch(_){} });
+      }, 160);
+    });
+    /* ECharts entra via <script defer>: pode chegar DEPOIS do 1o dado (que cai no SVG
+       fail-safe). Assim que a lib estiver pronta, faz upgrade SVG -> ECharts sem esperar
+       o proximo poll. Se nunca carregar (~6s), mantem o SVG (fail-safe). */
+    function whenEchartsReady(cb){
+      if (window.echarts && typeof echarts.init === "function"){ cb(); return; }
+      let tries = 0;
+      const iv = setInterval(function(){
+        if (window.echarts && typeof echarts.init === "function"){ clearInterval(iv); cb(); }
+        else if (++tries > 100){ clearInterval(iv); }
+      }, 60);
+    }
+
+    /* ================================================================ */
+    /* ===== Estado da Carol · v22 (config viva + validacao) ========== */
+    /* ================================================================ */
+    const fmtSec = new Intl.NumberFormat("pt-BR",{ maximumFractionDigits:2 });
+    /* CONFIG v22 — constantes reais (nao vem do backend) */
+    const EC_CONFIG = [
+      { k:"Cérebro (LLM)",   v:"gpt-4.1-mini",        s:"alta prioridade",              ic:"cpu"     },
+      { k:"Voz (TTS)",       v:"Raquel · flash v2.5", s:"ElevenLabs · temp 0.3",        ic:"wave"    },
+      { k:"Transcrição",     v:"Deepgram",            s:"endpointing 300ms",            ic:"caption" },
+      { k:"Turn-taking",     v:"Adaptativo",          s:"responsividade dinâmica",      ic:"repeat"  }
+    ];
+    /* latencia real medida (e2e p50 ~ 2,3s) — barra empilhada proporcional */
+    const EC_LAT = [
+      { k:"Escuta + transcrição", v:1.5,  c:"rgba(242,169,0,.42)" },
+      { k:"Raciocínio (LLM)",     v:0.6,  c:"#F2A900" },
+      { k:"Voz (TTS)",            v:0.16, c:"#ffc24d" }
+    ];
+    /* 5 dimensoes de validacao */
+    const EC_DIMS = [
+      { n:"Latência",       st:"2,3s · saudável",  d:"Dentro da faixa da indústria (1,5 a 2,5s). O piso é a escuta educada, que evita atropelar o cliente." },
+      { n:"Qualidade fonética", st:"estável",      d:"Voz flash v2.5 consistente. Resolveu a oscilação de várias vozes numa mesma frase. Trade-off: sem IPA de nomes." },
+      { n:"Interatividade", st:"adaptativa",       d:"Turn-taking dinâmico: responde rápido a quem fala rápido e espera quem hesita." },
+      { n:"Comunicação",    st:"precisa",          d:"STT Deepgram preciso. Corrigiu erros de transcrição, como 'brindes' que virava 'Bride'." },
+      { n:"Humanização",    st:"conversacional",   d:"Muletas naturais, alta empatia e prompt anti-roteiro: gírias BR e uma ideia por vez." }
+    ];
+    function ecIcon(name){
+      const P = {
+        cpu:'<rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6" rx="1"/><path d="M9 2v2M15 2v2M9 20v2M15 20v2M2 9h2M2 15h2M20 9h2M20 15h2"/>',
+        wave:'<path d="M3 12h1.5M7 8v8M11 4v16M15 9v6M19 11v2M22 12H21"/>',
+        caption:'<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 11h3M14 11h3M7 15h6"/>',
+        repeat:'<path d="m17 2 4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="m7 22-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/>',
+        check:'<path d="M20 6 9 17l-5-5"/>'
+      };
+      return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">'+(P[name]||"")+'</svg>';
+    }
+    function renderEstadoCarol(){
+      const total = EC_LAT.reduce((a,s)=>a+s.v,0) || 1;
+      const bar = $("ecLatBar"), leg = $("ecLatLeg");
+      if (bar){
+        bar.innerHTML = EC_LAT.map(function(s){
+          return '<span class="seg" style="background:'+s.c+'" data-w="'+((s.v/total)*100).toFixed(1)+'" title="'+s.k+': '+fmtSec.format(s.v)+'s"></span>';
+        }).join("");
+        const segs = bar.querySelectorAll(".seg");
+        if (jsAnim && !prefersReduced) requestAnimationFrame(function(){ segs.forEach(function(el){ el.style.width = el.dataset.w+"%"; }); });
+        else segs.forEach(function(el){ el.style.width = el.dataset.w+"%"; });
+      }
+      if (leg){
+        leg.innerHTML = EC_LAT.map(function(s){
+          return '<span class="it"><span class="d" style="background:'+s.c+'"></span>'+s.k+' <b>'+fmtSec.format(s.v)+'s</b></span>';
+        }).join("");
+      }
+      const cfg = $("ecCfg");
+      if (cfg){
+        cfg.innerHTML = EC_CONFIG.map(function(c){
+          return '<div class="chip'+(c.wide?" wide":"")+'">'+
+            '<span class="ci">'+ecIcon(c.ic)+'</span>'+
+            '<span class="cx"><span class="ck">'+escapeHtml(c.k)+'</span>'+
+            '<span class="cv" title="'+escapeHtml(c.v)+'">'+escapeHtml(c.v)+'</span>'+
+            '<span class="cs">'+escapeHtml(c.s)+'</span></span>'+
+          '</div>';
+        }).join("");
+      }
+      const dims = $("ecDims");
+      if (dims){
+        dims.innerHTML = EC_DIMS.map(function(d){
+          /* linha densa: check + rotulo + badge. descricao completa no title (hover). */
+          return '<div class="ec-dim" title="'+escapeHtml(d.d)+'">'+
+            '<span class="ring">'+ecIcon("check")+'</span>'+
+            '<span class="dn">'+escapeHtml(d.n)+'</span>'+
+            '<span class="dst">'+escapeHtml(d.st)+'</span>'+
+          '</div>';
+        }).join("");
+      }
+    }
+
+    /* ---------- render: donut de sentimento (SVG vanilla) ---------- */
+    function renderDonut(sent){
+      const host = $("donutSvg");
+      const legend = $("donutLegend");
+      if (!host) return;
+      const pos = Number(sent.positivo)||0, neu = Number(sent.neutro)||0, neg = Number(sent.negativo)||0;
+      const total = pos+neu+neg;
+      if (!total){
+        host.innerHTML = '<div class="chart-empty">Sem analise de sentimento ainda.</div>';
+        if (legend) legend.innerHTML = ""; return;
+      }
+      const R=54, C=2*Math.PI*R, sw=16, cx=70, cy=70;
+      const segs = [ {v:pos,col:"#2ec38b"}, {v:neu,col:"#6f88ab"}, {v:neg,col:"#ff6b6b"} ];
+      let off = 0, arcs = "";
+      segs.forEach(s=>{
+        if (!s.v) return;
+        const len = (s.v/total)*C;
+        arcs += '<circle cx="'+cx+'" cy="'+cy+'" r="'+R+'" fill="none" stroke="'+s.col+'" stroke-width="'+sw+'" '+
+                'stroke-dasharray="'+len.toFixed(2)+' '+(C-len).toFixed(2)+'" stroke-dashoffset="'+(-off).toFixed(2)+'" '+
+                'transform="rotate(-90 '+cx+' '+cy+')"/>';
+        off += len;
+      });
+      host.innerHTML =
+        '<svg class="chart-svg donut-svg" viewBox="0 0 140 140" role="img" aria-label="Distribuicao de sentimento">'+
+          '<circle cx="'+cx+'" cy="'+cy+'" r="'+R+'" fill="none" stroke="rgba(157,178,207,0.1)" stroke-width="'+sw+'"/>'+
+          arcs+
+          '<text x="'+cx+'" y="'+(cy-2)+'" text-anchor="middle" dominant-baseline="middle" fill="#EAF0F8" font-family="Sora,sans-serif" font-weight="800" font-size="26">'+total+'</text>'+
+          '<text x="'+cx+'" y="'+(cy+17)+'" text-anchor="middle" fill="#9DB0CC" font-family="Inter,sans-serif" font-weight="600" font-size="9" letter-spacing="1">CONVERSAS</text>'+
+        '</svg>';
+      if (legend){
+        legend.innerHTML = "";
+        [["Positivo",pos,"#2ec38b"],["Neutro",neu,"#6f88ab"],["Negativo",neg,"#ff6b6b"]].forEach(function(row){
+          const el = document.createElement("div"); el.className = "donut-leg";
+          el.innerHTML = '<span class="ld" style="background:'+row[2]+'"></span><span>'+row[0]+'</span><span class="lv">'+fmtNum.format(row[1])+'</span>';
+          legend.appendChild(el);
+        });
+      }
+    }
+
+    /* ---------- render: historico de chamadas (event-log) ---------- */
+    const PROX = {
+      especialista_confirma: { label:"Qualificado",          cls:"qual"   },
+      follow_up:             { label:"Follow-up",             cls:"follow" },
+      transferir_humano:     { label:"Transferir p/ humano",  cls:"human"  },
+      remover_lista:         { label:"Saiu da lista",         cls:"out"    }
+    };
+    const SENT_COL = { positivo:"#2ec38b", neutro:"#6f88ab", negativo:"#ff6b6b" };
+    /* referencia ao array ordenado exibido no log; o modal do lead le por data-idx */
+    let _logSorted = [];
+    function renderLog(chamadas){
+      const host = $("logRows"); const more = $("logMore");
+      if (!host) return;
+      if (!Array.isArray(chamadas) || !chamadas.length){
+        _logSorted = [];
+        host.innerHTML = '<div class="chart-empty">Nenhuma chamada registrada ainda.</div>';
+        if (more) more.textContent = ""; return;
+      }
+      const sorted = chamadas.slice().sort((a,b)=> (Number(b.ts)||0) - (Number(a.ts)||0));
+      _logSorted = sorted;
+      const LIMIT = 12;
+      const show = sorted.slice(0, LIMIT);
+      host.innerHTML = "";
+      const AV_GENERIC = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>';
+      show.forEach(function(c, i){
+        const tier = (["high","mid","low"].indexOf(c.tier) >= 0) ? c.tier : "unknown";
+        const hasScore = !(c.score === null || c.score === undefined || c.score === "");
+        const scoreNum = hasScore ? Number(c.score) : null;
+        const valid    = (scoreNum !== null && isFinite(scoreNum));
+        const scoreTxt = valid ? fmtNum.format(scoreNum) : "--";
+        const pct      = valid ? Math.max(0, Math.min(100, Math.round(scoreNum))) : 0;
+        let res;
+        if (c.proximo_passo && PROX[c.proximo_passo]) res = PROX[c.proximo_passo];
+        else if (c.qualificado === true) res = { label:"Qualificado", cls:"qual" };
+        else res = { label:"Sem interesse", cls:"none" };
+        const rawName = (c.nome && String(c.nome).trim()) || "";
+        const nome = rawName || "Sem nome";
+        const initM = rawName ? rawName.match(/[\p{L}\p{N}]/u) : null;
+        const avatar = initM ? escapeHtml(initM[0].toUpperCase()) : AV_GENERIC;
+        const sent = String(c.sentimento || "").toLowerCase();
+        const sentCol = SENT_COL[sent], sentLabel = SENT_LABEL[sent];
+        const metaSent = (sentCol && sentLabel)
+          ? '<span class="log-dot"></span><span class="log-sentiment" style="--sc:'+sentCol+'"><span class="sd"></span>'+escapeHtml(sentLabel)+'</span>'
+          : "";
+        const row = document.createElement("div"); row.className = "log-row";
+        row.dataset.tier = tier;
+        row.setAttribute("role", "button");
+        row.setAttribute("tabindex", "0");
+        row.dataset.idx = String(i);
+        row.setAttribute("aria-label", "Ver score de " + nome);
+        row.innerHTML =
+          '<div class="log-av">'+avatar+'</div>'+
+          '<div class="log-main">'+
+            '<div class="log-name-line"><span class="log-name">'+escapeHtml(nome)+'</span><span class="res-pill '+res.cls+'">'+escapeHtml(res.label)+'</span></div>'+
+            '<div class="log-meta"><span class="log-when">'+relTime(c.ts)+'</span>'+metaSent+'</div>'+
+          '</div>'+
+          '<div class="log-ring" data-tier="'+tier+'" data-pct="'+pct+'" role="img" aria-label="Score '+scoreTxt+'"><b>'+scoreTxt+'</b></div>'+
+          '<div class="log-nums"><span class="log-cost">'+fmtUSD.format(Number(c.custo_usd)||0)+'</span><span class="log-dur">'+fmtDur(c.duracao_s)+'</span></div>';
+        host.appendChild(row);
+      });
+      /* preenche os mini-aneis (anima uma vez apos inserir, se houver motion) */
+      const applyRings = function(){
+        host.querySelectorAll(".log-ring").forEach(function(r){ r.style.setProperty("--pct", Number(r.dataset.pct) || 0); });
+      };
+      if (jsAnim && !prefersReduced) requestAnimationFrame(applyRings);
+      else applyRings();
+      if (more){ const rest = sorted.length - show.length; more.textContent = rest > 0 ? ("e mais " + fmtNum.format(rest) + " chamadas") : ""; }
+    }
+
+    /* ---------- modal: card do lead score (abre ao clicar numa linha do log) ---------- */
+    const SENT_LABEL = { positivo:"Positivo", neutro:"Neutro", negativo:"Negativo" };
+    const MSVG = 'viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"';
+    const MICON = {
+      proximo:  '<svg '+MSVG+'><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>',
+      segmento: '<svg '+MSVG+'><path d="M12.6 2.6A2 2 0 0 0 11.2 2H4a2 2 0 0 0-2 2v7.2a2 2 0 0 0 .6 1.4l8.7 8.7a2.4 2.4 0 0 0 3.4 0l6.6-6.6a2.4 2.4 0 0 0 0-3.4z"/><path d="M7.5 7.5h.01"/></svg>',
+      empresa:  '<svg '+MSVG+'><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M9 9h.01M9 13h.01M9 17h.01M15 9h.01M15 13h.01M15 17h.01"/></svg>',
+      objecao:  '<svg '+MSVG+'><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/><path d="M12 8v4"/><path d="M12 15.5h.01"/></svg>',
+      resumo:   '<svg '+MSVG+'><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z"/><path d="M14 2v5h5"/><path d="M8 13h8"/><path d="M8 17h8"/></svg>'
+    };
+    const _fmtDateTime = new Intl.DateTimeFormat("pt-BR", { day:"2-digit", month:"2-digit", year:"numeric", hour:"2-digit", minute:"2-digit" });
+    function fmtWhenFull(ts){
+      const n = Number(ts);
+      if (!n || !isFinite(n)) return "";
+      const d = new Date(n);
+      if (isNaN(d.getTime())) return "";
+      const rel = relTime(ts);
+      return _fmtDateTime.format(d) + (rel ? (" · " + rel) : "");
+    }
+    /* mesma logica de tier/status usada na lista, para o card ficar coerente */
+    function tierOf(c){ return (["high","mid","low"].indexOf(c.tier) >= 0) ? c.tier : "unknown"; }
+    function statusOf(c){
+      if (c.proximo_passo && PROX[c.proximo_passo]) return PROX[c.proximo_passo];
+      if (c.qualificado === true) return { label:"Qualificado", cls:"qual" };
+      return { label:"Sem interesse", cls:"none" };
+    }
+    function lsmAddRow(container, icon, label, value){
+      if (value === null || value === undefined) return;
+      const v = String(value).trim();
+      if (!v || v.toLowerCase() === "null" || v.toLowerCase() === "undefined") return;
+      const row = document.createElement("div");
+      row.className = "sum-row";
+      row.innerHTML =
+        '<span class="row-ico" aria-hidden="true">'+icon+'</span>'+
+        '<div class="row-body"><span class="row-label">'+escapeHtml(label)+'</span>'+
+        '<span class="row-value">'+escapeHtml(v)+'</span></div>';
+      container.appendChild(row);
+    }
+    function fillLeadModal(c){
+      const tier = tierOf(c);
+      const res  = statusOf(c);
+      const nome = (c.nome && String(c.nome).trim()) || "Sem nome";
+      let score  = (c.score === null || c.score === undefined || c.score === "") ? null : Number(c.score);
+      if (score !== null && !isFinite(score)) score = null;
+
+      /* --- anel de score (reaproveita .score-ring; anima o preenchimento) --- */
+      const ring = $("lsmRing"), num = $("lsmScore");
+      ring.dataset.tier = tier;
+      if (score === null){
+        num.textContent = "--";
+        ring.style.setProperty("--pct", 0);
+      } else {
+        const s = Math.max(0, Math.min(100, Math.round(score)));
+        num.textContent = fmtNum.format(s);
+        ring.style.setProperty("--pct", 0);
+        if (jsAnim && !prefersReduced) requestAnimationFrame(function(){ ring.style.setProperty("--pct", s); });
+        else ring.style.setProperty("--pct", s);
+      }
+
+      /* --- titulo + pills (status da lista + sentimento com cor SENT_COL) --- */
+      $("lsmName").textContent = nome;
+      const sent = String(c.sentimento || "").toLowerCase();
+      let pills = '<span class="res-pill '+res.cls+'">'+escapeHtml(res.label)+'</span>';
+      if (SENT_LABEL[sent]){
+        const col = SENT_COL[sent] || "rgba(157,178,207,0.4)";
+        pills += '<span class="lsm-sent"><span class="lsm-sent-dot" style="background:'+col+'"></span>'+escapeHtml(SENT_LABEL[sent])+'</span>';
+      }
+      $("lsmPills").innerHTML = pills;
+
+      /* --- mini-metricas: custo / duracao / quando --- */
+      const stats = [];
+      stats.push(["Custo", fmtUSD.format(Number(c.custo_usd) || 0)]);
+      stats.push(["Duração", fmtDur(c.duracao_s)]);
+      const when = fmtWhenFull(c.ts);
+      if (when) stats.push(["Quando", when]);
+      $("lsmStats").innerHTML = stats.map(function(s){
+        return '<div class="lsm-stat"><span class="lsm-stat-lab">'+escapeHtml(s[0])+
+               '</span><span class="lsm-stat-val">'+escapeHtml(s[1])+'</span></div>';
+      }).join("");
+
+      /* --- linhas qualitativas (so aparecem se o campo existir) --- */
+      const rows = $("lsmRows"); rows.innerHTML = "";
+      let proxTxt = "";
+      if (c.proximo_passo){
+        proxTxt = (PROX[c.proximo_passo] && PROX[c.proximo_passo].label) || humanizeProd(c.proximo_passo);
+      }
+      lsmAddRow(rows, MICON.proximo,  "Próximo passo", proxTxt);
+      lsmAddRow(rows, MICON.segmento, "Segmento",      c.segmento);
+      lsmAddRow(rows, MICON.empresa,  "Empresa",       c.empresa);
+      lsmAddRow(rows, MICON.objecao,  "Objeção",       c.objecao);
+      lsmAddRow(rows, MICON.resumo,   "Resumo",        c.resumo);
+    }
+
+    let _lsmLastFocus = null;
+    let _lsmOpen = false;
+    let _lsmHideTimer = null;
+    function openLead(idx){
+      const modal = $("leadModal");
+      const c = _logSorted && _logSorted[idx];
+      if (!modal || !c) return;
+      clearTimeout(_lsmHideTimer);
+      fillLeadModal(c);
+      _lsmLastFocus = document.activeElement;
+      modal.hidden = false;
+      document.body.classList.add("lsm-open");
+      void modal.offsetWidth;               /* reflow: garante a transicao de entrada */
+      modal.classList.add("on");
+      _lsmOpen = true;
+      const closeBtn = $("lsmClose");
+      requestAnimationFrame(function(){ if (closeBtn) closeBtn.focus(); });
+    }
+    function closeLead(){
+      const modal = $("leadModal");
+      if (!modal || !_lsmOpen) return;
+      _lsmOpen = false;
+      modal.classList.remove("on");
+      document.body.classList.remove("lsm-open");
+      const finish = function(){ modal.hidden = true; };
+      clearTimeout(_lsmHideTimer);
+      if (jsAnim && !prefersReduced) _lsmHideTimer = setTimeout(finish, 280);
+      else finish();
+      if (_lsmLastFocus && typeof _lsmLastFocus.focus === "function") _lsmLastFocus.focus();
+      _lsmLastFocus = null;
+    }
+    function wireLeadModal(){
+      const host = $("logRows");
+      const modal = $("leadModal");
+      const closeBtn = $("lsmClose");
+      if (host){
+        host.addEventListener("click", function(e){
+          const row = e.target.closest(".log-row"); if (!row) return;
+          const idx = Number(row.dataset.idx); if (!Number.isFinite(idx)) return;
+          openLead(idx);
+        });
+        host.addEventListener("keydown", function(e){
+          if (e.key !== "Enter" && e.key !== " " && e.key !== "Spacebar") return;
+          const row = e.target.closest(".log-row"); if (!row) return;
+          e.preventDefault();
+          const idx = Number(row.dataset.idx); if (!Number.isFinite(idx)) return;
+          openLead(idx);
+        });
+      }
+      if (closeBtn) closeBtn.addEventListener("click", closeLead);
+      if (modal){
+        /* clique no backdrop (fora do dialog) fecha */
+        modal.addEventListener("click", function(e){ if (e.target === modal) closeLead(); });
+        /* ESC fecha + focus trap basico dentro do dialog */
+        modal.addEventListener("keydown", function(e){
+          if (e.key === "Escape"){ e.preventDefault(); closeLead(); return; }
+          if (e.key !== "Tab") return;
+          const f = modal.querySelectorAll('button, [href], [tabindex]:not([tabindex="-1"])');
+          if (!f.length) return;
+          const first = f[0], last = f[f.length - 1];
+          if (e.shiftKey && document.activeElement === first){ e.preventDefault(); last.focus(); }
+          else if (!e.shiftKey && document.activeElement === last){ e.preventDefault(); first.focus(); }
+        });
+      }
+    }
+
+    /* ---------- helpers extra + funil + performance + abas ---------- */
+    function setTxt(id, v){ const el = $(id); if (el) el.textContent = v; }
+    function predominantSent(sent){
+      const arr = [["Positivo", Number(sent.positivo)||0, "#2ec38b"],
+                   ["Neutro",   Number(sent.neutro)||0,   "#9DB0CC"],
+                   ["Negativo", Number(sent.negativo)||0, "#ff6b6b"]];
+      arr.sort(function(a,b){ return b[1]-a[1]; });
+      return { label: arr[0][1] ? arr[0][0] : "--", col: arr[0][2] };
+    }
+    function segBar(v, tot, col){
+      v = Number(v)||0; if (!tot) return "";
+      return '<span class="lat-seg" style="width:'+((v/tot)*100).toFixed(1)+'%;background:'+col+'"></span>';
+    }
+
+    /* funil "da conversa ao lead" (aba Panorama, preenche o painel) */
+    function renderFunnel(t){
+      const host = $("funnelBody"); if (!host) return;
+      const ch = Number(t.chamadas)||0, leads = Number(t.leads_qualificados)||0;
+      const taxa = (Number(t.taxa_qualificacao)||0)*100;
+      const wLead = ch ? Math.max(4,(leads/ch)*100) : 0;
+      const sent = t.sentimento||{};
+      const tot = (Number(sent.positivo)||0)+(Number(sent.neutro)||0)+(Number(sent.negativo)||0);
+      const dur = t.duracao_media_s ? fmtDur(t.duracao_media_s) : "--";
+      const score = Math.round(Number(t.score_medio)||0);
+      host.innerHTML =
+        '<div class="funnel-head"><span class="dash-kick-sm">Funil de conversão</span><span class="funnel-head-note">'+fmtNum1.format(taxa)+'% viram lead</span></div>'+
+        '<div class="funnel-rows">'+
+          '<div class="funnel-row"><span class="funnel-lab">Conversas</span><span class="funnel-track"><span class="funnel-fill" data-w="100"></span></span><span class="funnel-val">'+fmtNum.format(ch)+'</span></div>'+
+          '<div class="funnel-row"><span class="funnel-lab">Qualificados</span><span class="funnel-track"><span class="funnel-fill gold" data-w="'+wLead.toFixed(1)+'"></span></span><span class="funnel-val">'+fmtNum.format(leads)+'</span></div>'+
+        '</div>';
+      const fills = host.querySelectorAll(".funnel-fill");
+      if (jsAnim && !prefersReduced) requestAnimationFrame(function(){ fills.forEach(function(f){ f.style.width = f.dataset.w + "%"; }); });
+      else fills.forEach(function(f){ f.style.width = f.dataset.w + "%"; });
+    }
+
+    /* painel "Performance da Carol" (coluna direita) */
+    function renderPerf(t, serie){
+      const media = Number(t.latencia_media_ms)||0;
+      const p90   = Number(t.latencia_p90_ms)||0;
+      const llm   = Number(t.latencia_llm_ms)||0;
+      const tts   = Number(t.latencia_tts_ms)||0;
+      const asr   = Math.max(0, media - llm - tts);
+      setTxt("pLat", media ? fmtNum1.format(media/1000)+"s" : "--");
+      setTxt("pDur", t.duracao_media_s ? fmtDur(t.duracao_media_s) : "--");
+      const predom = predominantSent(t.sentimento||{});
+      setTxt("pSent", predom.label);
+      const ps = $("pSent"); if (ps) ps.style.color = predom.col;
+      setTxt("pTaxa", fmtNum1.format((Number(t.taxa_qualificacao)||0)*100)+"%");
+      setTxt("pLatTot", media ? (fmtNum1.format(media/1000)+"s · p90 "+fmtNum1.format(p90/1000)+"s") : "--");
+      const bars = $("latBars");
+      if (bars){
+        if (!media){ bars.innerHTML = '<div class="chart-empty" style="padding:10px">sem dados de latência</div>'; }
+        else {
+          const segs = [["Reconhecimento",asr,"rgba(242,169,0,.38)"],["Raciocínio (LLM)",llm,"var(--gold)"],["Voz (TTS)",tts,"var(--gold-2)"]];
+          bars.innerHTML = '<div class="lat-stack">'+segs.map(function(s){ return '<span class="lat-seg" style="width:'+((s[1]/media)*100).toFixed(1)+'%;background:'+s[2]+'"></span>'; }).join('')+'</div>';
+          const leg = $("latLegend");
+          if (leg) leg.innerHTML = segs.map(function(s){ return '<span class="lat-leg"><span class="ld" style="background:'+s[2]+'"></span>'+s[0]+' <b>'+fmtNum1.format(s[1]/1000)+'s</b></span>'; }).join('');
+        }
+      }
+      renderSpark(serie);
+    }
+    function renderSpark(serie){
+      const host = $("perfSpark"); if (!host) return;
+      if (!Array.isArray(serie) || serie.length < 2){ host.innerHTML = ""; return; }
+      const vals = serie.map(function(d){ return Number(d.chamadas)||0; });
+      const W=320, H=38, max=Math.max.apply(null, vals.concat([1]));
+      const x = function(i){ return (i/(vals.length-1))*W; };
+      const y = function(v){ return H-3 - (v/max)*(H-6); };
+      const line = "M" + vals.map(function(v,i){ return x(i).toFixed(1)+","+y(v).toFixed(1); }).join(" L");
+      const area = line + " L"+W+","+H+" L0,"+H+" Z";
+      host.innerHTML =
+        '<svg viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="none" role="img" aria-label="Volume de chamadas por dia">'+
+          '<defs><linearGradient id="gSpark" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="rgba(242,169,0,.22)"/><stop offset="1" stop-color="rgba(242,169,0,0)"/></linearGradient></defs>'+
+          '<path d="'+area+'" fill="url(#gSpark)"/>'+
+          '<path d="'+line+'" fill="none" stroke="var(--gold)" stroke-width="1.6" vector-effect="non-scaling-stroke"/>'+
+        '</svg>';
+    }
+
+    /* troca de aba (fade leve via CSS) */
+    function wireTabs(){
+      const btns = document.querySelectorAll(".tab-btn");
+      const panels = document.querySelectorAll(".tabpanel");
+      btns.forEach(function(b){
+        b.addEventListener("click", function(){
+          const tab = b.dataset.tab;
+          btns.forEach(function(x){ const on = x===b; x.classList.toggle("on", on); x.setAttribute("aria-selected", on?"true":"false"); });
+          panels.forEach(function(p){ p.classList.toggle("on", p.dataset.tab===tab); });
+          /* o grafico da aba recem-visivel precisa (re)medir/dimensionar */
+          requestAnimationFrame(renderAllSeries);
+        });
+      });
+    }
+
+    /* ---------- calculadora ---------- */
+    function currentRate(){
+      if (calcModel === "eleven_v3") return realRatePerMin || MODELOS.eleven_v3.rate;
+      return MODELOS[calcModel].rate;
+    }
+    function setRangeFill(r){
+      if (!r) return;
+      const p = ((Number(r.value) - Number(r.min)) / (Number(r.max) - Number(r.min))) * 100;
+      r.style.setProperty("--fill", p.toFixed(1) + "%");
+    }
+    function recalc(){
+      const a = $("cChamadas"), b = $("cDur");
+      if (!a || !b) return;
+      const chamadasMes = Number(a.value);
+      const durMin = Number(b.value);
+      const rate = currentRate();
+      const variavel = rate * durMin * chamadasMes;
+      const total = variavel + FIXOS_TOTAL;
+      const leads = chamadasMes * (realTaxa || 0);
+      const porLead = leads > 0 ? total / leads : null;
+      if ($("calcMensal"))  $("calcMensal").textContent  = fmtUSD0.format(total);
+      if ($("calcVar"))     $("calcVar").textContent     = fmtUSD0.format(variavel);
+      if ($("calcPorLead")) $("calcPorLead").textContent = porLead === null ? "--" : fmtUSD.format(porLead);
+      if ($("cChamadasVal"))$("cChamadasVal").textContent = fmtNum.format(chamadasMes);
+      if ($("cDurVal"))     $("cDurVal").textContent      = fmtNum1.format(durMin) + " min";
+      setRangeFill(a); setRangeFill(b);
+    }
+    function wireCalc(){
+      const a = $("cChamadas"), b = $("cDur");
+      if (a) a.addEventListener("input", recalc);
+      if (b) b.addEventListener("input", recalc);
+      document.querySelectorAll(".calc-model").forEach(function(btn){
+        btn.addEventListener("click", function(){
+          calcModel = btn.dataset.model;
+          document.querySelectorAll(".calc-model").forEach(x=> x.classList.toggle("on", x === btn));
+          recalc();
+        });
+      });
+      const cf = $("calcFixoTxt"); if (cf) cf.textContent = fmtUSD0.format(FIXOS_TOTAL);
+      setRangeFill(a); setRangeFill(b);
+    }
+
+    /* ---------- telemetria: relogio + "atualizado ha Xs" ---------- */
+    function pad2(n){ return String(n).padStart(2,"0"); }
+    function setAgo(){
+      const el = $("teleAgo"); if (!el) return;
+      const now = new Date();
+      el.textContent = "atualizado " + pad2(now.getHours()) + ":" + pad2(now.getMinutes());
+    }
+    function tickClock(){
+      const c = $("teleClock");
+      if (c){ const now = new Date(); c.textContent = pad2(now.getHours())+":"+pad2(now.getMinutes()); }
+    }
+    function beat(){
+      const el = $("tele");
+      if (!el || !jsAnim || prefersReduced) return;
+      el.classList.remove("beating"); void el.offsetWidth; el.classList.add("beating");
+    }
+    function flashNew(){
+      const el = $("tele");
+      if (!el || !jsAnim || prefersReduced) return;
+      el.classList.remove("flash"); void el.offsetWidth; el.classList.add("flash");
+    }
+
+    /* ---------- ciclo de dados ---------- */
+    var _lastDataKey = "";
+    function applyData(d){
+      const t = d.totais || {};
+      const key = JSON.stringify([d.por_produto, d.serie, (d.chamadas||[]).map(c=>c.call_id), t]);
+      const changed = (key !== _lastDataKey);
+      _lastDataKey = key;
+      realRatePerMin = Number(t.custo_medio_min_usd) || realRatePerMin;
+      realTaxa = (t.taxa_qualificacao != null) ? Number(t.taxa_qualificacao) : realTaxa;
+      if (!firstOK){
+        const avg = (Number(t.minutos) && Number(t.chamadas)) ? Number(t.minutos)/Number(t.chamadas) : 2;
+        const dr = $("cDur");
+        if (dr){ dr.value = Math.min(Math.max(Math.round(avg), 1), Number(dr.max)); }
+      }
+      const rE = $("rateEleven"); if (rE) rE.textContent = fmtUSD.format(realRatePerMin) + "/min";
+      _serieFull = Array.isArray(d.serie) ? d.serie : [];   /* serie completa p/ o seletor de periodo */
+      renderTotais(t, d.serie);   /* count-up so anima se o valor mudou (guarda interna) */
+      renderPerf(t, d.serie);
+      recalc();
+      tickClock();
+      // re-render pesado (com animacao de entrada) SO quando os dados mudam de verdade
+      if (changed || !firstOK){
+        renderFunnel(t);
+        renderProdBars(d.por_produto || []);
+        renderAllSeries();          /* aplica o periodo atual aos 3 graficos (ECharts / SVG) */
+        renderDonut(t.sentimento || {});
+        renderLog(d.chamadas || []);
+        if (firstOK) beat();
+      }
+    }
+
+    async function pollDashboard(){
+      try{
+        const res = await fetch(ENDPOINT, { method:"POST", headers:{ "Content-Type":"application/json" }, body:"{}" });
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        const data = await res.json();
+        if (!data || data.ok === false || !data.totais) throw new Error("payload invalido");
+        applyData(data);
+        lastUpdate = Date.now();
+        if (!firstOK){ firstOK = true; if (dashEl) dashEl.classList.remove("is-loading"); }
+        setAgo();
+      } catch(e){
+        console.warn("dashboard: falha ao atualizar (nova tentativa em breve):", e);
+        if (!firstOK){ const a = $("teleAgo"); if (a) a.textContent = "sem dados agora, tentando..."; }
+        // mantem os dados anteriores; segue tentando no proximo ciclo
+      } finally {
+        clearTimeout(pollTimer);
+        pollTimer = setTimeout(pollDashboard, INTERVAL_MS);
+      }
+    }
+
+    /* ---------- fail-safe: finaliza numeros + destrava skeleton ---------- */
+    window.__dashFinalize = function(){
+      finalizeNums();
+      if (dashEl) dashEl.classList.remove("is-loading");
+    };
+    window.addEventListener("beforeprint", function(){ try { window.__dashFinalize(); } catch(_){} });
+
+    /* ---------- init ---------- */
+    if (dashEl) dashEl.classList.add("is-loading");
+    wireTabs();
+    wireLeadModal();
+    wireCalc();
+    wireSeriePeriod();
+    wireCalPopover();
+    renderEstadoCarol();
+    recalc();
+    tickClock();
+    pollDashboard();
+    whenEchartsReady(renderAllSeries);   /* upgrade SVG -> ECharts assim que a lib chegar */
+  })();
+  </script>
+</body>
+</html>

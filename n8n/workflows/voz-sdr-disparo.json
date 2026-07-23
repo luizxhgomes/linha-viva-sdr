@@ -1,0 +1,481 @@
+{
+  "name": "voz-sdr-disparo (Linha Viva / Carol)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "voz-sdr-lead",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "a2a2b901-3236-480f-aff3-5398d658b7a8",
+      "name": "Webhook Lead",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        220,
+        300
+      ],
+      "webhookId": "4090e4c3-0c2c-4d38-8e4f-6a3e2d7f0509"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "9f4a1599-0f4c-42e2-be99-cc20c4262af6",
+              "name": "nome",
+              "value": "={{ $json.body.nome || $json.body.name || '' }}",
+              "type": "string"
+            },
+            {
+              "id": "5d536e59-83e8-4570-8124-7b63a10a5153",
+              "name": "telefone",
+              "value": "={{ $json.body.telefone || $json.body.phone || '' }}",
+              "type": "string"
+            },
+            {
+              "id": "0e8f86d3-041e-4f0c-aecb-fd0cd562cc29",
+              "name": "origem",
+              "value": "={{ $json.body.origem || '' }}",
+              "type": "string"
+            },
+            {
+              "id": "aea1da06-e833-467f-aaa7-ba0e81b46b31",
+              "name": "contexto",
+              "value": "={{ $json.body.contexto || '' }}",
+              "type": "string"
+            },
+            {
+              "id": "6486c8db-7dae-4ce0-a153-9720bb4fa3f7",
+              "name": "lead_id",
+              "value": "={{ $json.body.lead_id || '' }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "736d6a62-3fb7-435f-a933-f1c265410f2d",
+      "name": "Mapear Lead",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        420,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const from_number = \"+14706164413\";\nconst agent_id = \"agent_a32aac07fe9301318d015935d4\";\nlet d = String($json.telefone || '').replace(/\\D/g, '');\nif (d.startsWith('00')) d = d.slice(2);\nif (d.startsWith('55')) d = d.slice(2);\nif (d.length === 11 || d.length === 10) {\n  const ddd = d.slice(0, 2); let n = d.slice(2);\n  if (n.length === 8 && /^[6-9]/.test(n)) n = '9' + n; d = ddd + n;\n}\nconst to_number = '+55' + d;\nconst telefone_valido = /^\\+55\\d{2}9?\\d{8}$/.test(to_number);\nreturn [{ json: { ...$json, from_number, agent_id, to_number, telefone_valido } }];"
+      },
+      "id": "007fd84d-e689-41a9-9902-7b3539cfab69",
+      "name": "Normalizar E164",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        620,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "325085db-d4a1-4c85-b81d-a5235a023ad7",
+              "leftValue": "={{ $json.telefone_valido }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "40afbcf1-656f-470b-b70a-1d26c6fa0d9e",
+      "name": "Telefone valido?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        820,
+        300
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "4d9e7fff-61b3-41bc-b1ba-23ad5f6d5e2d",
+      "name": "Parar: telefone invalido",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        820,
+        500
+      ],
+      "notes": "Log e encerra: numero fora do padrao E.164 BR."
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "key": "voz:optout:{{ $json.to_number }}",
+        "options": {},
+        "propertyName": "optout",
+        "keyType": "automatic"
+      },
+      "id": "59ad85bb-38c8-4ec6-81ae-05723201cc8e",
+      "name": "Checar opt-out",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [
+        1020,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "5f5746bc-770e-4680-af03-3f31c0dfe22e",
+              "leftValue": "={{ $json.optout }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "empty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "15b32ec4-18e2-420b-bf64-650cc8ed26e2",
+      "name": "Nao esta em opt-out?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1220,
+        220
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "69596d26-0b37-4db3-9902-f95839c7acc7",
+      "name": "Parar: opt-out",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1220,
+        60
+      ],
+      "notes": "Numero na lista Nao Me Perturbe. Encerra (Anatel/LGPD)."
+    },
+    {
+      "parameters": {
+        "jsCode": "const tz = 'America/Sao_Paulo';\nconst agora = new Date(new Date().toLocaleString('en-US', { timeZone: tz }));\nconst h = agora.getHours(); const dow = agora.getDay(); // 0=dom\nlet dentro = false;\nif (dow >= 1 && dow <= 5) dentro = (h >= 9 && h < 20);      // seg a sex 9-20\nelse if (dow === 6) dentro = (h >= 10 && h < 13);           // sab 10-13\n// domingo: nunca\nreturn [{ json: { ...$json, dentro_janela: dentro } }];"
+      },
+      "id": "5340b093-819a-44e5-8566-f7fce99c3ef6",
+      "name": "Checar janela discagem",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1420,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "59f61ffa-7c0d-428a-83cf-c39a72e1f408",
+              "leftValue": "={{ $json.dentro_janela }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "61b3ceb4-39dc-4beb-a518-1cd81b356fb5",
+      "name": "Dentro da janela?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1620,
+        220
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "a2851bab-e25f-4532-82d1-b91e71981721",
+      "name": "Parar: fora da janela",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1620,
+        60
+      ],
+      "notes": "Fora do horario legal de discagem. Reenfileirar para a proxima janela."
+    },
+    {
+      "parameters": {
+        "operation": "set",
+        "key": "voz:dial:{{ $json.to_number }}",
+        "options": {},
+        "value": "1",
+        "expire": true,
+        "ttl": 3600
+      },
+      "id": "b623cac5-ff67-4725-a251-5e43a86a6039",
+      "name": "Lock discagem",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [
+        1820,
+        220
+      ],
+      "notes": "Evita discar 2x o mesmo numero em 1h."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.retellai.com/v2/create-phone-call",
+        "options": {},
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({from_number:$json.from_number,to_number:$json.to_number,override_agent_id:$json.agent_id,retell_llm_dynamic_variables:{name:$json.nome,origem_lead:$json.origem,contexto:$json.contexto},metadata:{lead_id:$json.lead_id}}) }}"
+      },
+      "id": "c8597458-9d58-4570-9c7e-af609f84589f",
+      "name": "Retell create-phone-call",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2020,
+        220
+      ],
+      "notes": "Credencial: Retell (HTTP Header Auth: Authorization = Bearer <RETELL_API_KEY>)."
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "50d968cb-3fc3-4518-b489-48b0163833aa",
+              "name": "ok",
+              "value": "true",
+              "type": "boolean"
+            },
+            {
+              "id": "8439b961-226b-4ff1-a6f0-8b16819b1ce5",
+              "name": "call_id",
+              "value": "={{ $json.call_id }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a1d3d735-5629-4738-af96-7e34a33cc776",
+      "name": "Montar resposta",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2220,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "id": "e2322387-9918-4e37-a8b2-d4c543dd7e8c",
+      "name": "Responder 200",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        2420,
+        220
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook Lead": {
+      "main": [
+        [
+          {
+            "node": "Mapear Lead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mapear Lead": {
+      "main": [
+        [
+          {
+            "node": "Normalizar E164",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalizar E164": {
+      "main": [
+        [
+          {
+            "node": "Telefone valido?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telefone valido?": {
+      "main": [
+        [
+          {
+            "node": "Checar opt-out",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Parar: telefone invalido",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Checar opt-out": {
+      "main": [
+        [
+          {
+            "node": "Nao esta em opt-out?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Nao esta em opt-out?": {
+      "main": [
+        [
+          {
+            "node": "Checar janela discagem",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Parar: opt-out",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Checar janela discagem": {
+      "main": [
+        [
+          {
+            "node": "Dentro da janela?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dentro da janela?": {
+      "main": [
+        [
+          {
+            "node": "Lock discagem",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Parar: fora da janela",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lock discagem": {
+      "main": [
+        [
+          {
+            "node": "Retell create-phone-call",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Retell create-phone-call": {
+      "main": [
+        [
+          {
+            "node": "Montar resposta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Montar resposta": {
+      "main": [
+        [
+          {
+            "node": "Responder 200",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

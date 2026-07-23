@@ -1,0 +1,94 @@
+{
+  "_meta": {
+    "produto": "Linha Viva",
+    "cliente": "Base Viral / Rodrigo Noll",
+    "agente": "Carol",
+    "descricao": "Config recomendada do agente Retell (NAO-secreto). Segredos ficam no cofre (.claude/settings.local.json env ou credencial n8n). Nomes de campo alinhados a UI/API da Retell; aplicar na revisao.",
+    "versao": "2.0",
+    "data": "2026-07-20"
+  },
+  "agent": {
+    "agent_id": "agent_a32aac07fe9301318d015935d4",
+    "agent_name": "SDR Carol - Base Viral",
+    "language": "pt-BR",
+    "response_engine": {
+      "type": "retell-llm",
+      "model": "gpt-4o-mini",
+      "model_alternativas": ["gpt-realtime", "gpt-4.1-mini"],
+      "nota_modelo": "GPT-5 atual pesa na latencia (1675-2225ms). Testar modelo rapido; manter GPT-5 apenas se p50 < 1s apos ajustes.",
+      "model_temperature": 0.7
+    },
+    "voice": {
+      "provider": "elevenlabs",
+      "voice_name": "Raquel - Expressive and Energetic (BR)",
+      "elevenlabs_voice_id": "GDzHdQOi6jjf8zaXhCYD",
+      "retell_voice_id": "custom_voice_b7edce44dfe1c6e54e84a39ba0",
+      "voice_model": "eleven_flash_v2_5",
+      "voice_speed": 1.05,
+      "voice_temperature": 0.9,
+      "aplicado_no_agente": true
+    },
+    "conversation": {
+      "responsiveness": 1.0,
+      "responsiveness_dynamic_adjust": true,
+      "interruption_sensitivity": 0.75,
+      "nota_interruption": "Baixado de 1.0 para 0.75: 1.0 corta em ruido de celular BR; 0.75 da barge-in natural sem falso-corte.",
+      "enable_backchannel": true,
+      "backchannel_frequency": 0.7,
+      "backchannel_words": ["aham", "sei", "entendi", "certo", "isso", "uhum"],
+      "nota_backchannel": "Removido 'uh-hun' (soa gringo). Lista ajustada para PT-BR natural.",
+      "reminder_trigger_ms": 10000,
+      "reminder_max_count": 1,
+      "begin_message_delay_ms": 600,
+      "normalize_for_speech": true
+    },
+    "audio": {
+      "ambient_sound": "call-center",
+      "ambient_sound_volume": 0.3,
+      "nota_ambient": "Manter em volume baixo; desligar se soar postico no teste cego.",
+      "denoising": "noise-cancellation",
+      "transcription_mode": "fast",
+      "nota_transcription": "Alterado de 'accurate' para 'fast' para favorecer sub-1s. Testar impacto na precisao dos termos do negocio (mitigado pelas boosted_keywords)."
+    },
+    "boosted_keywords": [
+      "Base Viral", "Ecossistema de Indicacao", "Rodrigo Noll", "Metodo VPI", "VPI",
+      "imersao", "indicacao", "CRM", "Estanplaza", "Berrini",
+      "Mostrar", "Bacana", "Entendi", "Maravilha", "Top demais", "Vai ser incrivel"
+    ],
+    "call": {
+      "enable_voicemail_detection": true,
+      "voicemail_action": "short_message_or_hangup",
+      "end_call_after_silence_ms": 15000,
+      "user_dtmf": { "enabled": true, "timeout_ms": 2500 }
+    },
+    "webhook": {
+      "webhook_url": "https://n8n.bilinski.cloud/webhook/voz-retell-events",
+      "webhook_timeout_ms": 5000,
+      "webhook_events": ["call_started", "call_ended", "call_analyzed"],
+      "nota_webhook": "Preencher o campo 'URL do webhook de nivel de agente' na Retell com esta URL (workflow voz-sdr-webhook)."
+    },
+    "security": {
+      "data_storage": "retencao_limitada",
+      "nota_storage": "Era 'Tudo / manter para sempre'. Reduzir retencao + ativar PII redaction (LGPD, minimizacao).",
+      "pii_redaction": true,
+      "fallback_voice": "auto"
+    },
+    "tools": [
+      { "name": "end_call", "descricao": "encerrar chamada" },
+      { "name": "cal_com_check_availability", "descricao": "verificar disponibilidade na agenda (rota A de agendamento)" },
+      { "name": "cal_com_book", "descricao": "reservar horario no calendario (rota A)" },
+      { "name": "transfer_to_human", "descricao": "opcional: transferir para especialista se o lead pedir" }
+    ],
+    "post_call_analysis": {
+      "model": "claude-sonnet",
+      "schema_ref": "custom-analysis-schema.json"
+    },
+    "dynamic_variables": ["name", "current_time", "origem_lead", "contexto"]
+  },
+  "telephony": {
+    "from_number": "+14706164413",
+    "from_number_legacy": "+12313105239",
+    "provider": "CONFIRMAR: twilio-sip (disca BR) OU retell-native (US only)",
+    "nota": "Numero Retell nativo so disca destinos US. Para ligar BR em producao: Twilio SIP + DID importado em E.164. Para a demo, confirmar se +14706164413 disca BR ou usar web call."
+  }
+}

@@ -1,0 +1,604 @@
+{
+  "name": "voz-sdr-pos-chamada (Linha Viva / Carol)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "voz-retell-events",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "d60d706c-bcf3-4e29-83c4-c74acf07e2f5",
+      "name": "Webhook Retell Events",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        200,
+        400
+      ],
+      "webhookId": "296e629c-0b25-4685-a200-6ffc64a6c01c"
+    },
+    {
+      "parameters": {
+        "jsCode": "const crypto = require('crypto');\nconst raw = $json.rawBody || JSON.stringify($json.body || {});\nconst sig = ($json.headers || {})['x-retell-signature'];\nconst keyEnv = $env.RETELL_API_KEY;\nif (keyEnv && sig) {\n  const exp = crypto.createHmac('sha256', keyEnv).update(raw).digest('hex');\n  if (sig !== exp) throw new Error('assinatura Retell invalida');\n}\nconst body = $json.body || $json;\nreturn [{ json: { event: body.event, call: body.call || {} } }];"
+      },
+      "id": "5374f46e-512c-41a0-80f4-5616a8258f81",
+      "name": "Verificar assinatura",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        400,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "key": "voz:evt:{{ $json.event }}:{{ $json.call.call_id }}",
+        "options": {},
+        "propertyName": "visto",
+        "keyType": "automatic"
+      },
+      "id": "60907d9a-7937-4079-8169-190cf5316143",
+      "name": "Checar idempotencia",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [
+        600,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "a4b498cf-a5c6-4d50-b5d2-9bd1e397f26e",
+              "leftValue": "={{ $json.visto }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "empty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "1980134c-f80d-4591-92b7-8449c0b6beeb",
+      "name": "Evento novo?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        800,
+        400
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "2cc2f9e9-baab-43e8-bb5f-333654a94ba9",
+      "name": "Ignorar: evento duplicado",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        800,
+        600
+      ],
+      "notes": "Idempotencia: mesmo event+call_id ja processado."
+    },
+    {
+      "parameters": {
+        "operation": "set",
+        "key": "voz:evt:{{ $json.event }}:{{ $json.call.call_id }}",
+        "options": {},
+        "value": "1",
+        "expire": true,
+        "ttl": 86400
+      },
+      "id": "e998f991-4187-4d63-8618-0a64a4b2d799",
+      "name": "Marcar processado",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [
+        1000,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "rules",
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "8d958c8a-bb2e-4385-b258-5a4246705ef6",
+                    "leftValue": "={{ $json.event }}",
+                    "rightValue": "call_analyzed",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "call_analyzed"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "1b6c6385-e999-491f-b1c3-49b03cf19245",
+                    "leftValue": "={{ $json.event }}",
+                    "rightValue": "call_started",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "call_started"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "4785035b-98bc-4c3f-89b2-717b3160c582",
+                    "leftValue": "={{ $json.event }}",
+                    "rightValue": "call_ended",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "call_ended"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      },
+      "id": "aa6b2139-37f8-4055-9785-a982026c016b",
+      "name": "Tipo de evento",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        1200,
+        320
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "5da20f61-0fdb-4035-8828-14afbe72676b",
+      "name": "Log: iniciada",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1400,
+        120
+      ],
+      "notes": "call_started: registrar inicio."
+    },
+    {
+      "parameters": {},
+      "id": "6f4a835f-35c1-4aed-a920-b242ec7860fd",
+      "name": "Log: encerrada",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1400,
+        240
+      ],
+      "notes": "call_ended: registrar fim (sem analise ainda)."
+    },
+    {
+      "parameters": {
+        "jsCode": "const call = $json.call || {};\nconst cad = (call.call_analysis && call.call_analysis.custom_analysis_data) || {};\nconst proximo = cad.proximo_passo || (cad.opt_out ? 'remover_lista'\n  : (cad.agendou_reuniao ? 'agendar' : 'nurture'));\nreturn [{ json: {\n  call_id: call.call_id, recording_url: call.recording_url,\n  qualificado: cad.qualificado, segmento: cad.segmento,\n  qtd_clientes_base: cad.qtd_clientes_base, ja_indica_espontaneo: cad.ja_indica_espontaneo,\n  usa_crm: cad.usa_crm, agendou_reuniao: cad.agendou_reuniao,\n  data_hora_agendada: cad.data_hora_agendada, objecao_principal: cad.objecao_principal,\n  opt_out: cad.opt_out, sentimento: cad.sentimento, resumo: cad.resumo,\n  telefone: call.to_number, proximo_passo: proximo } }];"
+      },
+      "id": "12c06839-e0cb-428f-80a9-47e0bf1c68ee",
+      "name": "Extrair analise",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1400,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "rules",
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "e862c79a-d5ab-42b7-88d9-0b493b7e9234",
+                    "leftValue": "={{ $json.proximo_passo }}",
+                    "rightValue": "agendar",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "agendar"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "8ec1ae19-9ac1-40f0-8544-0ebfaaf894cb",
+                    "leftValue": "={{ $json.proximo_passo }}",
+                    "rightValue": "nurture",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "nurture"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "78a15f1f-96fe-41af-95ba-ecf314c2031c",
+                    "leftValue": "={{ $json.proximo_passo }}",
+                    "rightValue": "remover_lista",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "remover_lista"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "93034e16-29a0-432b-9f0d-30e182a3e5b5",
+                    "leftValue": "={{ $json.proximo_passo }}",
+                    "rightValue": "transferir_humano",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "transferir_humano"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      },
+      "id": "20278e6d-ff30-495a-abf6-2e1b2041b6f8",
+      "name": "Rotear proximo passo",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        1600,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://SEU-CRM/api/upsert",
+        "options": {},
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}"
+      },
+      "id": "5bd6d6f1-2957-4a13-9117-7edd88b5c2d6",
+      "name": "CRM upsert lead",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1820,
+        240
+      ],
+      "notes": "Configurar endpoint/credencial do CRM (GHL, Google, etc.). Cria/atualiza o lead qualificado."
+    },
+    {
+      "parameters": {},
+      "id": "3c585d01-c8be-4a37-9e76-8522228c88d9",
+      "name": "Criar evento na agenda",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        2020,
+        240
+      ],
+      "notes": "Se data_hora_agendada: criar evento no Google Calendar / Cal.com do closer."
+    },
+    {
+      "parameters": {},
+      "id": "c1933426-eb27-404f-971a-1416a2ca9661",
+      "name": "Notificar closer",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        2220,
+        240
+      ],
+      "notes": "Enviar resumo + recording_url ao closer (WhatsApp/Slack/email)."
+    },
+    {
+      "parameters": {},
+      "id": "94d1d6b4-30db-4296-a0e3-6908554d0450",
+      "name": "Sequencia de nurture",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1820,
+        400
+      ],
+      "notes": "Nutrir por objecao_principal."
+    },
+    {
+      "parameters": {
+        "operation": "set",
+        "key": "voz:optout:{{ $json.telefone }}",
+        "options": {},
+        "value": "1"
+      },
+      "id": "3549eaa3-90ad-48b7-b5c1-f9bc67f4ca34",
+      "name": "Gravar opt-out",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [
+        1820,
+        520
+      ],
+      "notes": "Suppression list (Nao Me Perturbe)."
+    },
+    {
+      "parameters": {},
+      "id": "536f1a43-0cc3-4396-9b89-5d88918ad369",
+      "name": "Notificar closer (urgente)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1820,
+        640
+      ],
+      "notes": "Lead pediu humano: transferir/avisar com prioridade."
+    }
+  ],
+  "connections": {
+    "Webhook Retell Events": {
+      "main": [
+        [
+          {
+            "node": "Verificar assinatura",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verificar assinatura": {
+      "main": [
+        [
+          {
+            "node": "Checar idempotencia",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Checar idempotencia": {
+      "main": [
+        [
+          {
+            "node": "Evento novo?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Evento novo?": {
+      "main": [
+        [
+          {
+            "node": "Marcar processado",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ignorar: evento duplicado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Marcar processado": {
+      "main": [
+        [
+          {
+            "node": "Tipo de evento",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tipo de evento": {
+      "main": [
+        [
+          {
+            "node": "Extrair analise",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log: iniciada",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log: encerrada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extrair analise": {
+      "main": [
+        [
+          {
+            "node": "Rotear proximo passo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rotear proximo passo": {
+      "main": [
+        [
+          {
+            "node": "CRM upsert lead",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Sequencia de nurture",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Gravar opt-out",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Notificar closer (urgente)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CRM upsert lead": {
+      "main": [
+        [
+          {
+            "node": "Criar evento na agenda",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Criar evento na agenda": {
+      "main": [
+        [
+          {
+            "node": "Notificar closer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

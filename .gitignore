@@ -1,0 +1,33 @@
+# ─────────────────────────────────────────────────────────────
+# Segredos e ambiente — NUNCA versionar
+# ─────────────────────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+secrets.*
+**/credentials*.json
+# planilha/cofre local de chaves
+*Chaves*.xlsx
+*Acessos*.xlsx
+
+# ─────────────────────────────────────────────────────────────
+# Deploy / build / tooling
+# ─────────────────────────────────────────────────────────────
+node_modules/
+.vercel/
+dist/
+build/
+_repo-build/
+.cache/
+
+# ─────────────────────────────────────────────────────────────
+# SO / editor
+# ─────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+*.log
+.idea/
+.vscode/
+*.swp

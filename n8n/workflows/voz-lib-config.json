@@ -1,0 +1,85 @@
+{
+  "name": "voz-lib-config (Linha Viva / Carol)",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "af9b3f90-295f-4bc0-af32-2b6d21db1971",
+      "name": "Start",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        240,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "84f7b2ad-2664-4c62-9638-9ae911e894a9",
+              "name": "from_number",
+              "value": "+14706164413",
+              "type": "string"
+            },
+            {
+              "id": "19f62c69-1dbe-467f-bf20-fa66fccc5a09",
+              "name": "retell_agent_id",
+              "value": "agent_a32aac07fe9301318d015935d4",
+              "type": "string"
+            },
+            {
+              "id": "e9d44cfd-c893-41c5-8dad-963ff26a1a60",
+              "name": "retell_api_base",
+              "value": "https://api.retellai.com/v2",
+              "type": "string"
+            },
+            {
+              "id": "76f4fdfc-0c0f-48d6-ae95-9c9c4e6bba34",
+              "name": "janela_ini",
+              "value": "9",
+              "type": "number"
+            },
+            {
+              "id": "3395ae91-47c6-46c3-b8cb-d551930fd91a",
+              "name": "janela_fim",
+              "value": "20",
+              "type": "number"
+            },
+            {
+              "id": "7ab2b99e-d893-4e50-b3d2-5a2dcde5ba1a",
+              "name": "retry_max",
+              "value": "2",
+              "type": "number"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "f44cf6b6-526e-413d-af86-2e22db62fd89",
+      "name": "Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        460,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

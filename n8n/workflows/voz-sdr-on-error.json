@@ -1,0 +1,77 @@
+{
+  "name": "voz-sdr-on-error (Linha Viva / Carol)",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "ef0aacc6-0793-49bc-99cf-e3a44e1661ad",
+      "name": "On Error",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        240,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const e = $json;\nreturn [{ json: {\n  workflow: e.workflow && e.workflow.name,\n  node: e.execution && e.execution.lastNodeExecuted,\n  erro: (e.execution && e.execution.error && e.execution.error.message) || 'erro desconhecido',\n  ts: (e.execution && e.execution.startedAt) || null } }];"
+      },
+      "id": "76e0166d-bf00-49de-b75b-4899d9954bef",
+      "name": "Montar alerta",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        440,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://SEU-ALERTA/webhook",
+        "options": {},
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}"
+      },
+      "id": "8cf2520b-b273-4e75-9292-d371c8301a14",
+      "name": "Alertar ops",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        640,
+        300
+      ],
+      "notes": "Configurar canal de alerta (Slack/WhatsApp/email). Setar este workflow como Error Workflow nos demais."
+    }
+  ],
+  "connections": {
+    "On Error": {
+      "main": [
+        [
+          {
+            "node": "Montar alerta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Montar alerta": {
+      "main": [
+        [
+          {
+            "node": "Alertar ops",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

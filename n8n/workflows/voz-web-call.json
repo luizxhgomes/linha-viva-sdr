@@ -1,0 +1,101 @@
+{
+  "name": "voz-web-call (Linha Viva / Carol)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "voz-web-call",
+        "responseMode": "responseNode",
+        "options": {
+          "allowedOrigins": "*"
+        }
+      },
+      "id": "0d957256-6c9d-4644-971d-fa2014ac5502",
+      "name": "Webhook Web Call",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        240,
+        300
+      ],
+      "webhookId": "68f1901f-8a1d-4290-9b6d-52d4a9a32d05"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.retellai.com/v2/create-web-call",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ agent_id: \"agent_a32aac07fe9301318d015935d4\" }) }}",
+        "options": {}
+      },
+      "id": "db549b98-4c63-41b9-8dd6-6d29c3211c79",
+      "name": "Retell create-web-call",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        460,
+        300
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "ZdKW9le7weHFunFr",
+          "name": "Retell (Linha Viva)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ access_token: $json.access_token, call_id: $json.call_id }) }}",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              }
+            ]
+          }
+        }
+      },
+      "id": "52c3df59-ef9a-4763-95c0-f52ad621ca04",
+      "name": "Responder token",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        680,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook Web Call": {
+      "main": [
+        [
+          {
+            "node": "Retell create-web-call",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Retell create-web-call": {
+      "main": [
+        [
+          {
+            "node": "Responder token",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

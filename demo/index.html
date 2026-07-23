@@ -1,0 +1,1274 @@
+<!DOCTYPE html>
+<html lang="pt-BR" class="no-js">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0B1B33">
+<meta name="color-scheme" content="dark">
+<title>Base Viral, ligacao da IA ao vivo</title>
+<script>document.documentElement.className = "js";</script>
+<style>
+/* ============================================================
+   BASE VIRAL, player de ligacao da IA (Carol)
+   Imersao Ecossistema de Indicacao, prova de fechamento.
+   Arquivo unico, self-contained, zero rede (roda sob file://).
+   apex-lead + motion-eng / css-eng / interaction-dsgn
+   ============================================================ */
+
+*,*::before,*::after{ box-sizing:border-box; margin:0; padding:0; }
+
+:root{
+  --navy-950:#081327;
+  --navy-900:#0B1B33;
+  --navy-850:#0E2038;
+  --navy-800:#122540;
+  --navy-700:#132743;
+  --navy-600:#1B335A;
+  --navy-500:#254271;
+
+  --gold:#F2A900;
+  --gold-2:#FFC64D;
+  --gold-soft:rgba(242,169,0,.16);
+
+  --ink:#EAF1FB;
+  --ink-2:#C6D4EA;
+  --ink-dim:#8FA3C4;
+  --ink-faint:#6F84A6;
+
+  --lead-wave:#5E82C4;   /* navy claro, waveform do lead */
+  --agent-wave:#F2A900;  /* dourado, waveform do agente  */
+
+  --line:rgba(148,178,224,.12);
+  --line-2:rgba(148,178,224,.20);
+  --card:rgba(19,39,67,.62);
+  --card-2:rgba(12,26,48,.72);
+  --glass:rgba(9,20,40,.55);
+
+  --ok:#3FBF8F;
+  --radius:20px;
+}
+
+html,body{ overflow-x:clip; width:100%; }
+html{ -webkit-text-size-adjust:100%; }
+
+body{
+  min-height:100dvh;
+  font-family:"Inter",system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,"Apple Color Emoji","Segoe UI Emoji",sans-serif;
+  color:var(--ink);
+  background:
+    radial-gradient(1100px 720px at 82% -8%, #16305a 0%, rgba(16,32,56,0) 58%),
+    radial-gradient(980px 700px at 8% 108%, #123056 0%, rgba(11,27,51,0) 55%),
+    linear-gradient(168deg, #0B1B33 0%, #0A1830 48%, #081327 100%);
+  -webkit-font-smoothing:antialiased;
+  text-rendering:optimizeLegibility;
+  padding:clamp(16px,2.6vw,34px);
+}
+
+/* ============================================================
+   APP
+   ============================================================ */
+.app{ width:100%; max-width:1200px; margin:0 auto; display:flex; flex-direction:column; gap:clamp(14px,2vw,22px); }
+
+/* ---------- Topbar ---------- */
+.topbar{
+  display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap;
+}
+.brand{ display:flex; align-items:center; gap:13px; min-width:0; }
+.brand-mark{
+  width:46px; height:46px; border-radius:13px; flex:0 0 auto; position:relative;
+  background:linear-gradient(150deg,var(--gold-2),var(--gold) 62%,#c98700);
+  display:flex; align-items:center; justify-content:center;
+  color:#221200; font-weight:900; font-size:19px; letter-spacing:-.5px;
+  box-shadow:0 10px 26px -10px rgba(242,169,0,.7), inset 0 1px 0 rgba(255,255,255,.5);
+}
+.brand-mark::after{
+  content:""; position:absolute; inset:0; border-radius:13px;
+  box-shadow:0 0 0 1px rgba(255,255,255,.14) inset;
+}
+.brand-txt{ display:flex; flex-direction:column; min-width:0; line-height:1.15; }
+.brand-name{ font-weight:800; font-size:clamp(17px,2.4vw,21px); letter-spacing:.2px; }
+.brand-sub{
+  font-size:clamp(11px,1.8vw,12.5px); color:var(--ink-dim); font-weight:600;
+  letter-spacing:.3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+.brand-sub .mid{ color:var(--gold); margin:0 5px; }
+
+.tools{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+.tool-label{ font-size:10.5px; letter-spacing:.7px; text-transform:uppercase; color:var(--ink-faint); font-weight:800; }
+
+.seg{
+  display:inline-flex; background:var(--card-2); border:1px solid var(--line);
+  border-radius:12px; padding:3px; gap:2px; backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px);
+}
+.seg button{
+  border:0; background:transparent; color:var(--ink-2); font-weight:700;
+  padding:8px 14px; border-radius:9px; cursor:pointer; font-size:12.5px; line-height:1;
+  white-space:nowrap; transition:color .2s ease, background .2s ease;
+}
+.seg button:hover{ color:#fff; }
+.seg button.on{
+  background:linear-gradient(180deg,var(--gold-2),var(--gold)); color:#241300;
+  box-shadow:0 4px 14px -4px rgba(242,169,0,.6);
+}
+
+.btn-backstage{
+  display:none; border:1px solid var(--line-2); background:var(--card-2); color:var(--ink);
+  font-weight:700; font-size:12.5px; padding:9px 14px; border-radius:11px; cursor:pointer;
+  align-items:center; gap:8px;
+}
+.btn-backstage .pip{ width:8px; height:8px; border-radius:50%; background:var(--gold); box-shadow:0 0 0 4px var(--gold-soft); }
+
+/* ============================================================
+   GRID (call-card + backstage)
+   ============================================================ */
+.grid{
+  display:grid; gap:clamp(14px,1.8vw,20px);
+  grid-template-columns:minmax(0,1.34fr) minmax(320px,0.92fr);
+  height:min(770px, calc(100dvh - 168px));
+  min-height:520px;
+}
+
+.panel{
+  background:linear-gradient(180deg, var(--card) 0%, var(--card-2) 100%);
+  border:1px solid var(--line); border-radius:var(--radius);
+  box-shadow:0 30px 80px -40px rgba(0,0,0,.9), inset 0 1px 0 rgba(255,255,255,.05);
+  position:relative; overflow:hidden;
+}
+
+/* ---------- ZONA 1 + 2: call-card ---------- */
+.call-card{ display:flex; flex-direction:column; min-width:0; min-height:0; }
+
+/* --- ZONA 1: tela de chamada --- */
+.call-screen{
+  flex:0 0 auto; position:relative; padding:clamp(16px,2.2vw,24px) clamp(16px,2.4vw,26px) clamp(14px,1.8vw,20px);
+  background:
+    radial-gradient(520px 300px at 78% -30%, rgba(242,169,0,.14), rgba(242,169,0,0) 60%),
+    linear-gradient(180deg, rgba(37,66,113,.30), rgba(18,37,64,0) 82%);
+  border-bottom:1px solid var(--line);
+}
+.rec-row{ display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:14px; }
+.rec{
+  display:inline-flex; align-items:center; gap:7px; font-size:11px; font-weight:700;
+  letter-spacing:.5px; color:#ffd9a0; text-transform:uppercase;
+  background:rgba(242,169,0,.10); border:1px solid rgba(242,169,0,.28);
+  padding:5px 10px; border-radius:999px;
+}
+.rec .blink{ width:8px; height:8px; border-radius:50%; background:#ff5a5a; box-shadow:0 0 0 0 rgba(255,90,90,.6); }
+.js-anim .rec .blink{ animation:blink 1.6s ease-in-out infinite; }
+@keyframes blink{ 0%,100%{ opacity:1; box-shadow:0 0 0 0 rgba(255,90,90,.55);} 50%{ opacity:.5; box-shadow:0 0 0 6px rgba(255,90,90,0);} }
+.dir{
+  display:inline-flex; align-items:center; gap:6px; font-size:11px; font-weight:700;
+  color:var(--ink-dim); letter-spacing:.4px; text-transform:uppercase;
+}
+.dir svg{ width:14px; height:14px; }
+
+.callee{ display:flex; align-items:center; gap:15px; }
+.avatar{
+  width:64px; height:64px; border-radius:50%; flex:0 0 auto; position:relative;
+  background:conic-gradient(from 130deg, #ffcf72, #f2a900, #c98700, #ffcf72);
+  display:flex; align-items:center; justify-content:center;
+  color:#241300; font-weight:900; font-size:26px;
+  box-shadow:0 8px 22px -8px rgba(242,169,0,.65), inset 0 1px 0 rgba(255,255,255,.5);
+}
+.avatar::before{
+  content:""; position:absolute; inset:-6px; border-radius:50%;
+  border:2px solid rgba(242,169,0,.35); opacity:0;
+}
+.js-anim .call-card.speaking-agent .avatar::before{ animation:ring 1.8s ease-out infinite; opacity:1; }
+.js-anim .call-card.speaking-lead .avatar{ box-shadow:0 8px 22px -8px rgba(94,130,196,.6), inset 0 1px 0 rgba(255,255,255,.4); }
+@keyframes ring{ 0%{ transform:scale(1); opacity:.6;} 100%{ transform:scale(1.28); opacity:0;} }
+.callee-id{ min-width:0; display:flex; flex-direction:column; gap:2px; }
+.callee-top{ display:flex; align-items:center; gap:9px; flex-wrap:wrap; }
+.callee-name{ font-size:clamp(19px,2.6vw,23px); font-weight:800; letter-spacing:.2px; }
+.callee-tag{
+  font-size:10.5px; font-weight:800; letter-spacing:.5px; text-transform:uppercase;
+  color:#241300; background:linear-gradient(180deg,var(--gold-2),var(--gold));
+  padding:3px 9px; border-radius:999px;
+}
+.callee-role{ font-size:13px; color:var(--ink-2); font-weight:600; }
+.callee-num{ font-size:13px; color:var(--ink-dim); font-weight:600; letter-spacing:.6px; margin-top:1px; }
+.callee-num b{ color:var(--ink-2); font-weight:700; }
+
+/* waveform */
+.wave-wrap{ margin-top:clamp(16px,2vw,22px); }
+.wave{
+  display:flex; align-items:center; justify-content:center; gap:2.5px;
+  height:74px; padding:4px 2px;
+}
+.wave i{
+  width:3px; flex:0 0 auto; border-radius:3px; height:4px;
+  background:rgba(148,178,224,.20); transition:background .35s ease;
+  will-change:height;
+}
+.wave.spk-idle i{ background:rgba(148,178,224,.20); }
+.wave.spk-agent i{ background:var(--agent-wave); box-shadow:0 0 7px -1px rgba(242,169,0,.5); }
+.wave.spk-lead i{ background:var(--lead-wave); box-shadow:0 0 7px -2px rgba(94,130,196,.5); }
+
+/* progresso / seek */
+.progress{
+  position:relative; height:22px; margin-top:4px; cursor:pointer; display:flex; align-items:center;
+}
+.progress-track{ position:relative; width:100%; height:5px; border-radius:999px; background:rgba(148,178,224,.16); overflow:visible; }
+.progress-fill{ position:absolute; inset:0 auto 0 0; width:0%; border-radius:999px; background:linear-gradient(90deg,#c98700,var(--gold) 70%,var(--gold-2)); }
+.progress-head{
+  position:absolute; top:50%; left:0%; width:13px; height:13px; border-radius:50%;
+  transform:translate(-50%,-50%); background:#fff; box-shadow:0 2px 8px rgba(0,0,0,.5), 0 0 0 3px var(--gold);
+}
+.time-row{ display:flex; justify-content:space-between; align-items:center; margin-top:2px; }
+.timer{ font-size:12.5px; font-weight:700; color:var(--ink-2); letter-spacing:.5px; font-variant-numeric:tabular-nums; }
+.disclosure{ font-size:11px; color:var(--ink-faint); font-weight:600; }
+
+/* transport */
+.transport{ display:flex; align-items:center; justify-content:center; gap:clamp(14px,2.4vw,26px); margin-top:clamp(12px,1.6vw,18px); }
+.icon-btn{
+  width:44px; height:44px; border-radius:50%; border:1px solid var(--line-2); cursor:pointer;
+  background:var(--card-2); color:var(--ink-2); display:flex; align-items:center; justify-content:center;
+  transition:transform .12s ease, color .2s ease, border-color .2s ease;
+}
+.icon-btn:hover{ color:#fff; border-color:var(--line-2); }
+.icon-btn:active{ transform:scale(.92); }
+.icon-btn svg{ width:20px; height:20px; }
+.play-btn{
+  width:64px; height:64px; border-radius:50%; border:0; cursor:pointer; position:relative;
+  background:linear-gradient(180deg,var(--gold-2),var(--gold) 65%,#d99400); color:#221200;
+  display:flex; align-items:center; justify-content:center;
+  box-shadow:0 12px 30px -8px rgba(242,169,0,.7), inset 0 1px 0 rgba(255,255,255,.5);
+  transition:transform .12s ease;
+}
+.play-btn:active{ transform:scale(.94); }
+.play-btn svg{ width:28px; height:28px; }
+.play-btn .ic-pause{ display:none; }
+.play-btn.playing .ic-play{ display:none; }
+.play-btn.playing .ic-pause{ display:block; }
+.js-anim .play-btn.hint::after{
+  content:""; position:absolute; inset:-5px; border-radius:50%; border:2px solid var(--gold);
+  animation:ring 1.8s ease-out infinite;
+}
+.speed{ display:inline-flex; background:var(--card-2); border:1px solid var(--line); border-radius:11px; padding:3px; gap:2px; }
+.speed button{
+  border:0; background:transparent; color:var(--ink-2); font-weight:700; font-size:12px; line-height:1;
+  padding:7px 10px; border-radius:8px; cursor:pointer; min-width:40px;
+}
+.speed button.on{ background:var(--navy-600); color:var(--gold-2); }
+
+/* --- ZONA 2: transcricao sincronizada --- */
+.transcript-wrap{ flex:1 1 auto; min-height:0; display:flex; flex-direction:column; }
+.zone-head{
+  flex:0 0 auto; display:flex; align-items:center; gap:9px;
+  padding:12px clamp(16px,2.4vw,24px) 10px; border-bottom:1px solid var(--line);
+}
+.zone-head .lb{ font-size:11px; font-weight:800; letter-spacing:.8px; text-transform:uppercase; color:var(--ink-dim); }
+.zone-head .lb b{ color:var(--gold); }
+.zone-head .legend{ margin-left:auto; display:flex; gap:12px; }
+.zone-head .legend span{ display:inline-flex; align-items:center; gap:5px; font-size:11px; color:var(--ink-dim); font-weight:600; }
+.zone-head .legend .sw{ width:9px; height:9px; border-radius:3px; }
+.sw.agent{ background:var(--gold); }
+.sw.lead{ background:var(--lead-wave); }
+
+.transcript{
+  position:relative; /* torna-se offsetParent das .line, base correta do auto-scroll */
+  flex:1 1 auto; min-height:0; overflow-y:auto; overflow-x:clip;
+  padding:16px clamp(14px,2.2vw,22px) 20px; display:flex; flex-direction:column; gap:11px;
+  scroll-behavior:smooth; -webkit-overflow-scrolling:touch;
+  mask-image:linear-gradient(180deg, transparent 0, #000 22px, #000 calc(100% - 22px), transparent 100%);
+}
+.line{ display:flex; width:100%; }
+.line.agent{ justify-content:flex-start; }
+.line.lead{ justify-content:flex-end; }
+.bubble{
+  position:relative; max-width:82%; border-radius:16px; padding:11px 14px 12px;
+  border:1px solid var(--line); background:var(--navy-800);
+  transition:transform .3s cubic-bezier(.2,.8,.3,1), box-shadow .3s ease, border-color .3s ease, background .3s ease;
+}
+.line.agent .bubble{
+  border-top-left-radius:5px;
+  background:linear-gradient(180deg, rgba(37,66,113,.5), rgba(18,37,64,.65));
+  border-color:rgba(242,169,0,.14);
+}
+.line.lead .bubble{
+  border-top-right-radius:5px;
+  background:linear-gradient(180deg, rgba(24,44,78,.6), rgba(14,30,54,.7));
+  border-color:rgba(94,130,196,.22);
+}
+.b-meta{ display:flex; align-items:center; gap:8px; margin-bottom:5px; }
+.who{ font-size:11px; font-weight:800; letter-spacing:.4px; }
+.line.agent .who{ color:var(--gold-2); }
+.line.lead .who{ color:#9db8e6; }
+.seal{
+  font-size:9.5px; font-weight:800; letter-spacing:.5px; text-transform:uppercase;
+  padding:2px 7px; border-radius:999px; display:inline-flex; align-items:center; gap:4px;
+}
+.seal.ia{ color:#0d1f38; background:linear-gradient(180deg,#bfe0ff,#7fb6ec); }
+.seal.guard{ color:#241300; background:linear-gradient(180deg,var(--gold-2),var(--gold)); }
+.seal .dotmark{ width:5px; height:5px; border-radius:50%; background:currentColor; opacity:.75; }
+.b-text{ font-size:14.5px; line-height:1.5; color:var(--ink); }
+.line.lead .b-text{ color:var(--ink-2); }
+
+/* estados de sincronia (progressive enhancement, so no .js-anim) */
+.js-anim .line .bubble{ opacity:.42; }
+.js-anim .line.past .bubble{ opacity:.66; }
+.js-anim .line.active .bubble{
+  opacity:1; transform:translateY(-1px) scale(1.012);
+}
+.js-anim .line.agent.active .bubble{
+  border-color:rgba(242,169,0,.6); box-shadow:0 10px 30px -12px rgba(242,169,0,.55), 0 0 0 1px rgba(242,169,0,.35) inset;
+}
+.js-anim .line.lead.active .bubble{
+  border-color:rgba(94,130,196,.6); box-shadow:0 10px 30px -12px rgba(94,130,196,.5), 0 0 0 1px rgba(94,130,196,.35) inset;
+}
+
+/* ---------- ZONA 3: bastidores ---------- */
+.backstage{ display:flex; flex-direction:column; min-height:0; }
+.bs-head{
+  flex:0 0 auto; padding:14px clamp(16px,2vw,20px) 12px; border-bottom:1px solid var(--line);
+  display:flex; align-items:center; gap:10px;
+}
+.bs-head .lb{ display:flex; flex-direction:column; gap:2px; min-width:0; }
+.bs-head .k{ font-size:10.5px; font-weight:800; letter-spacing:.8px; text-transform:uppercase; color:var(--gold); }
+.bs-head .t{ font-size:14.5px; font-weight:800; color:var(--ink); }
+.bs-head .live{
+  margin-left:auto; font-size:10.5px; font-weight:800; letter-spacing:.5px; text-transform:uppercase;
+  color:var(--ok); display:inline-flex; align-items:center; gap:6px;
+}
+.bs-head .live .pip{ width:7px; height:7px; border-radius:50%; background:var(--ok); }
+.js-anim .bs-head .live .pip{ animation:blink 1.6s ease-in-out infinite; }
+
+.bs-scroll{ flex:1 1 auto; min-height:0; overflow-y:auto; overflow-x:clip; padding:14px clamp(14px,1.8vw,18px) 22px; }
+
+.stepper{ list-style:none; position:relative; margin:0 0 4px; }
+.stepper::before{
+  content:""; position:absolute; left:13px; top:8px; bottom:8px; width:2px;
+  background:linear-gradient(180deg, rgba(148,178,224,.28), rgba(148,178,224,.08));
+}
+.step{ position:relative; padding:0 0 16px 40px; }
+.step:last-child{ padding-bottom:2px; }
+.step-dot{
+  position:absolute; left:5px; top:1px; width:18px; height:18px; border-radius:50%;
+  background:var(--navy-850); border:2px solid rgba(148,178,224,.35);
+  display:flex; align-items:center; justify-content:center; z-index:1;
+  transition:border-color .35s ease, background .35s ease, box-shadow .35s ease;
+}
+.step-dot svg{ width:11px; height:11px; opacity:0; transition:opacity .3s ease; color:#0e2038; }
+.step.lit .step-dot{ background:linear-gradient(180deg,var(--gold-2),var(--gold)); border-color:var(--gold); box-shadow:0 0 14px -3px rgba(242,169,0,.7); }
+.step.lit .step-dot svg{ opacity:1; }
+.step.now .step-dot::after{
+  content:""; position:absolute; inset:-4px; border-radius:50%; border:2px solid var(--gold);
+}
+.js-anim .step.now .step-dot::after{ animation:ring 1.6s ease-out infinite; }
+.step-body{ min-width:0; }
+.step-label{ font-size:13px; font-weight:700; color:var(--ink-2); line-height:1.4; transition:color .3s ease; }
+.step.lit .step-label{ color:var(--ink); }
+.step-node{
+  font-size:10.5px; font-weight:700; letter-spacing:.3px; color:var(--ink-faint);
+  font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; margin-top:2px;
+}
+.step.lit .step-node{ color:var(--gold-2); }
+
+/* card de lead qualificado (revelado no fim) */
+.lead-card{
+  margin-top:6px; border-top:1px dashed var(--line-2); padding-top:18px;
+}
+.js-anim .lead-card{ opacity:0; transform:translateY(14px); pointer-events:none; transition:opacity .6s ease, transform .6s cubic-bezier(.16,.84,.34,1); }
+.js-anim .lead-card.show{ opacity:1; transform:none; pointer-events:auto; }
+.lead-toast{
+  display:flex; align-items:center; gap:10px; margin-bottom:16px;
+  background:rgba(63,191,143,.12); border:1px solid rgba(63,191,143,.4);
+  padding:11px 13px; border-radius:13px; color:#bff5dd; font-size:12.5px; font-weight:700;
+}
+.lead-toast .tick{
+  width:26px; height:26px; border-radius:50%; flex:0 0 auto;
+  background:var(--ok); color:#04150d; display:flex; align-items:center; justify-content:center; font-weight:900;
+}
+.js-anim .lead-card .lead-toast .tick{ transform:scale(.4); transition:transform .5s cubic-bezier(.2,1.6,.4,1) .2s; }
+.js-anim .lead-card.show .lead-toast .tick{ transform:scale(1); }
+
+.lead-top{ display:flex; align-items:center; gap:15px; margin-bottom:16px; }
+.ring{ width:82px; height:82px; flex:0 0 auto; }
+.ring circle{ fill:none; stroke-width:9; stroke-linecap:round; transform:rotate(-90deg); transform-origin:60px 60px; }
+.ring .ring-bg{ stroke:rgba(148,178,224,.16); }
+.ring .ring-fg{ stroke:url(#rg); stroke-dasharray:326.7; stroke-dashoffset:326.7; }
+.js-anim .lead-card.show .ring .ring-fg{ transition:stroke-dashoffset 1.15s cubic-bezier(.2,.7,.2,1) .35s; stroke-dashoffset:42.5; }
+.no-js .ring .ring-fg{ stroke-dashoffset:42.5; }
+.ring .num{ fill:#fff; font-size:27px; font-weight:800; }
+.ring .lbl{ fill:var(--gold-2); font-size:9px; font-weight:800; letter-spacing:.6px; }
+.lead-title{ display:flex; flex-direction:column; gap:3px; min-width:0; }
+.lead-title .k{ font-size:10.5px; font-weight:800; letter-spacing:.6px; text-transform:uppercase; color:var(--gold); }
+.lead-title .n{ font-size:17px; font-weight:800; color:var(--ink); line-height:1.25; }
+.lead-title .s{ font-size:12px; color:var(--ink-dim); font-weight:600; }
+
+.qgrid{ display:flex; flex-direction:column; gap:8px; }
+.q{
+  display:flex; gap:12px; align-items:flex-start;
+  background:rgba(148,178,224,.05); border:1px solid var(--line);
+  padding:10px 13px; border-radius:12px;
+}
+.q.hot{ background:rgba(242,169,0,.1); border-color:rgba(242,169,0,.3); }
+.q .tick2{
+  width:16px; height:16px; border-radius:5px; flex:0 0 auto; margin-top:2px;
+  background:var(--navy-600); display:flex; align-items:center; justify-content:center;
+}
+.q.hot .tick2{ background:linear-gradient(180deg,var(--gold-2),var(--gold)); }
+.q .tick2 svg{ width:10px; height:10px; color:var(--ink-2); }
+.q.hot .tick2 svg{ color:#241300; }
+.q .body{ min-width:0; }
+.q .lb2{ font-size:10px; font-weight:800; letter-spacing:.5px; text-transform:uppercase; color:var(--ink-faint); margin-bottom:2px; }
+.q .vl{ font-size:13.5px; color:var(--ink); line-height:1.4; font-weight:600; word-wrap:break-word; overflow-wrap:break-word; }
+.q.hot .vl{ color:var(--gold-2); }
+
+.lead-foot{
+  margin-top:16px; padding:13px 15px; border-radius:13px; text-align:center;
+  background:linear-gradient(180deg, rgba(242,169,0,.12), rgba(242,169,0,.05));
+  border:1px solid rgba(242,169,0,.24);
+  font-size:13.5px; font-weight:700; color:#ffe0a6; line-height:1.5;
+}
+
+/* ---------- backdrop mobile (bottom-sheet) ---------- */
+.backdrop{
+  position:fixed; inset:0; z-index:55; background:rgba(4,10,22,.6); backdrop-filter:blur(2px);
+  opacity:0; pointer-events:none; transition:opacity .4s ease;
+}
+.backdrop.open{ opacity:1; pointer-events:auto; }
+.sheet-close{
+  display:none; position:absolute; top:12px; right:14px; z-index:3; width:30px; height:30px; border-radius:50%;
+  border:0; cursor:pointer; background:rgba(148,178,224,.14); color:var(--ink-2); font-size:17px; line-height:1;
+}
+
+/* scrollbars discretas */
+.transcript::-webkit-scrollbar,.bs-scroll::-webkit-scrollbar{ width:8px; }
+.transcript::-webkit-scrollbar-thumb,.bs-scroll::-webkit-scrollbar-thumb{ background:rgba(148,178,224,.18); border-radius:8px; }
+
+/* ============================================================
+   RESPONSIVO
+   ============================================================ */
+@media (max-width:900px){
+  body{ padding:12px 12px 14px; }
+  .grid{ grid-template-columns:1fr; height:auto; min-height:0; }
+  .call-card{ min-height:0; }
+  .transcript{ max-height:46vh; }
+  .btn-backstage{ display:inline-flex; }
+  .tool-label{ display:none; }
+  .backstage{
+    position:fixed; left:0; right:0; bottom:0; z-index:60; max-height:88vh;
+    border-radius:22px 22px 0 0; transform:translateY(102%);
+    transition:transform .5s cubic-bezier(.16,.84,.34,1);
+  }
+  .backstage.open{ transform:none; }
+  .sheet-close{ display:flex; }
+  .bs-head{ padding-top:20px; }
+}
+@media (max-width:520px){
+  .transport{ gap:16px; }
+  .callee-name{ font-size:20px; }
+  .zone-head .legend{ display:none; }
+  .brand-sub .fullsub{ display:none; }
+}
+
+/* ============================================================
+   REDUCED MOTION: nada de jitter/loop, tudo legivel
+   ============================================================ */
+@media (prefers-reduced-motion:reduce){
+  *{ transition:none !important; animation:none !important; scroll-behavior:auto !important; }
+  .js-anim .line .bubble{ opacity:1 !important; transform:none !important; }
+  .js-anim .lead-card{ opacity:1 !important; transform:none !important; pointer-events:auto !important; }
+  .ring .ring-fg{ stroke-dashoffset:42.5 !important; }
+}
+
+/* fallback JS desligado */
+.no-js .tools .seg, .no-js .transport, .no-js .btn-backstage{ display:none; }
+.no-js .backstage{ position:relative; transform:none; }
+noscript .nojs{ display:block; text-align:center; color:var(--ink-dim); font-size:13px; padding:10px; }
+</style>
+</head>
+<body>
+
+<div class="app">
+
+  <!-- ---------- Topbar ---------- -->
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-mark">BV</div>
+      <div class="brand-txt">
+        <span class="brand-name">Base Viral</span>
+        <span class="brand-sub"><span class="fullsub">Imersao<span class="mid">&middot;</span></span>Ecossistema de Indicacao</span>
+      </div>
+    </div>
+    <div class="tools">
+      <span class="tool-label">Modo</span>
+      <div class="seg" id="modeSeg" role="tablist" aria-label="Modo de reproducao">
+        <button data-mode="apresentacao" class="on" type="button">Apresentacao</button>
+        <button data-mode="auto" type="button">Auto</button>
+      </div>
+      <button class="btn-backstage" id="btnBackstage" type="button">
+        <span class="pip"></span> Ver bastidores
+      </button>
+    </div>
+  </header>
+
+  <!-- ---------- Grid ---------- -->
+  <div class="grid">
+
+    <!-- ZONA 1 + 2 -->
+    <section class="panel call-card" id="callCard">
+
+      <!-- ZONA 1: tela de chamada -->
+      <div class="call-screen">
+        <div class="rec-row">
+          <span class="rec"><span class="blink"></span> Gravada para qualidade</span>
+          <span class="dir">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M13 6l6 6-6 6"/></svg>
+            Chamada saindo
+          </span>
+        </div>
+
+        <div class="callee">
+          <div class="avatar" id="avatar">C</div>
+          <div class="callee-id">
+            <div class="callee-top">
+              <span class="callee-name">Carol</span>
+              <span class="callee-tag">Assistente virtual</span>
+            </div>
+            <span class="callee-role">Consultora virtual da Base Viral</span>
+            <span class="callee-num">Ligando para Marcelo &middot; <b id="numero">+1 470 616 4413</b></span>
+          </div>
+        </div>
+
+        <div class="wave-wrap">
+          <div class="wave spk-idle" id="wave" aria-hidden="true"></div>
+          <div class="progress" id="progress" role="slider" aria-label="Posicao da ligacao" tabindex="0">
+            <div class="progress-track">
+              <div class="progress-fill" id="progFill"></div>
+              <div class="progress-head" id="progHead"></div>
+            </div>
+          </div>
+          <div class="time-row">
+            <span class="timer" id="timer">0:00 / 1:41</span>
+            <span class="disclosure">A Carol se identifica como IA na abertura</span>
+          </div>
+        </div>
+
+        <div class="transport">
+          <button class="icon-btn" id="restartBtn" type="button" aria-label="Reiniciar a ligacao">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>
+          </button>
+          <button class="play-btn hint" id="playBtn" type="button" aria-label="Reproduzir ou pausar">
+            <svg class="ic-play" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+            <svg class="ic-pause" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4.2" height="14" rx="1.3"/><rect x="13.8" y="5" width="4.2" height="14" rx="1.3"/></svg>
+          </button>
+          <div class="speed" id="speedSeg" aria-label="Velocidade">
+            <button data-speed="1" class="on" type="button">1x</button>
+            <button data-speed="1.5" type="button">1.5x</button>
+            <button data-speed="2" type="button">2x</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ZONA 2: transcricao sincronizada -->
+      <div class="transcript-wrap">
+        <div class="zone-head">
+          <span class="lb">Transcricao <b>sincronizada</b></span>
+          <span class="legend">
+            <span><span class="sw agent"></span>Carol</span>
+            <span><span class="sw lead"></span>Marcelo</span>
+          </span>
+        </div>
+        <div class="transcript" id="transcript" aria-live="polite">
+          <noscript>
+            <span class="nojs">Transcricao da ligacao Base Viral, Carol para Marcelo (versao estatica)</span>
+            <div class="line agent"><div class="bubble"><div class="b-meta"><span class="who">Carol</span><span class="seal ia">assistente virtual</span></div><div class="b-text">Oi, Marcelo, tudo bem? Aqui e a Carol, consultora virtual da Base Viral. Essa ligacao e gravada pra qualidade, ta bom? Recebi seu contato e to te ligando pra dar o pontape inicial na sua participacao na Imersao Ecossistema de Indicacao. Voce tem uns minutinhos agora?</div></div></div>
+            <div class="line lead"><div class="bubble"><div class="b-meta"><span class="who">Marcelo</span></div><div class="b-text">Oi, tudo bem sim. Tenho uns minutos, pode falar.</div></div></div>
+            <div class="line agent"><div class="bubble"><div class="b-meta"><span class="who">Carol</span></div><div class="b-text">Que otimo. So pra garantir que to falando com a pessoa certa: seu nome completo, por favor?</div></div></div>
+            <div class="line lead"><div class="bubble"><div class="b-meta"><span class="who">Marcelo</span></div><div class="b-text">Marcelo Andrade, da clinica aqui em Campinas.</div></div></div>
+            <div class="line agent"><div class="bubble"><div class="b-meta"><span class="who">Carol</span></div><div class="b-text">Perfeito, Marcelo. Deixa eu te conhecer rapidinho, pode ser? Qual e o segmento do seu negocio?</div></div></div>
+            <div class="line lead"><div class="bubble"><div class="b-meta"><span class="who">Marcelo</span></div><div class="b-text">Odontologia. Tenho uma clinica com alguns dentistas comigo.</div></div></div>
+            <div class="line agent"><div class="bubble"><div class="b-meta"><span class="who">Carol</span></div><div class="b-text">Bacana. E quantos pacientes voce tem hoje na sua base, mais ou menos?</div></div></div>
+            <div class="line lead"><div class="bubble"><div class="b-meta"><span class="who">Marcelo</span></div><div class="b-text">Uns 900, por ai.</div></div></div>
+            <div class="line agent"><div class="bubble"><div class="b-meta"><span class="who">Carol</span></div><div class="b-text">Boa base. Esses pacientes ja te indicam de forma espontanea?</div></div></div>
+            <div class="line lead"><div class="bubble"><div class="b-meta"><span class="who">Marcelo</span></div><div class="b-text">As vezes indicam, mas e tudo no boca a boca, nada organizado.</div></div></div>
+            <div class="line lead"><div class="bubble"><div class="b-meta"><span class="who">Marcelo</span><span class="seal guard">honestidade</span></div><div class="b-text">Perai, deixa eu te perguntar: voce e um robo?</div></div></div>
+            <div class="line agent"><div class="bubble"><div class="b-meta"><span class="who">Carol</span><span class="seal guard">honestidade</span></div><div class="b-text">Boa pergunta. Eu sou a assistente virtual da Base Viral, sim. Faco esse primeiro contato pra ninguem ficar esperando. Se voce preferir falar com uma pessoa, eu ja passo pra um especialista, ta?</div></div></div>
+            <div class="line lead"><div class="bubble"><div class="b-meta"><span class="who">Marcelo</span></div><div class="b-text">Ah, tranquilo, pode seguir.</div></div></div>
+            <div class="line agent"><div class="bubble"><div class="b-meta"><span class="who">Carol</span></div><div class="b-text">Combinado. Ultima coisa: voce usa algum sistema de CRM pra controlar esses contatos?</div></div></div>
+            <div class="line lead"><div class="bubble"><div class="b-meta"><span class="who">Marcelo</span></div><div class="b-text">Uso uma planilha, mas e bem improvisado.</div></div></div>
+            <div class="line agent"><div class="bubble"><div class="b-meta"><span class="who">Carol</span></div><div class="b-text">Show, Marcelo. Pelo que voce me contou, faz muito sentido voce conversar com um dos nossos especialistas. Ele tira todas as suas duvidas sobre a imersao e ve como ela encaixa no seu momento, sem compromisso. Posso ja deixar isso agendado pra voce?</div></div></div>
+            <div class="line lead"><div class="bubble"><div class="b-meta"><span class="who">Marcelo</span></div><div class="b-text">Pode ser, sim.</div></div></div>
+            <div class="line agent"><div class="bubble"><div class="b-meta"><span class="who">Carol</span></div><div class="b-text">Maravilha. Deixa eu ver aqui a agenda dele. Consigo quinta de manha as 10h, ou sexta as 16h. Qual encaixa melhor pra voce?</div></div></div>
+            <div class="line lead"><div class="bubble"><div class="b-meta"><span class="who">Marcelo</span></div><div class="b-text">Quinta de manha e melhor pra mim.</div></div></div>
+            <div class="line agent"><div class="bubble"><div class="b-meta"><span class="who">Carol</span></div><div class="b-text">Fechou, entao ficou pra quinta as 10h, correto?</div></div></div>
+            <div class="line lead"><div class="bubble"><div class="b-meta"><span class="who">Marcelo</span></div><div class="b-text">Isso.</div></div></div>
+            <div class="line agent"><div class="bubble"><div class="b-meta"><span class="who">Carol</span></div><div class="b-text">Perfeito, Marcelo! Vou te mandar todos os detalhes da conversa por e-mail e um lembrete, ta bom? Obrigada pela atencao e ate la. Vai ser incrivel!</div></div></div>
+          </noscript>
+        </div>
+      </div>
+    </section>
+
+    <!-- ZONA 3: bastidores -->
+    <aside class="panel backstage" id="backstage" aria-label="Bastidores da orquestracao">
+      <button class="sheet-close" id="sheetClose" type="button" aria-label="Fechar">&times;</button>
+      <div class="bs-head">
+        <div class="lb">
+          <span class="k">Bastidores</span>
+          <span class="t">n8n + Retell orquestrando</span>
+        </div>
+        <span class="live"><span class="pip"></span> Ao vivo</span>
+      </div>
+      <div class="bs-scroll">
+        <ol class="stepper" id="stepper"></ol>
+        <div class="lead-card" id="leadCard"></div>
+      </div>
+    </aside>
+
+  </div>
+</div>
+
+<div class="backdrop" id="backdrop" aria-hidden="true"></div>
+
+<script>
+(function(){
+  "use strict";
+
+  /* ===========================================================
+     DADOS: timeline embutida inline (NUNCA fetch, roda sob file://)
+     Conteudo verbatim de personas/imersao-indicacao.json
+     =========================================================== */
+  var DADOS = {
+    "vertical": "odontologia",
+    "negocio": { "nome": "Base Viral", "sdr": "Carol", "produto": "Imersao Ecossistema de Indicacao" },
+    "lead_persona": {
+      "nome": "Marcelo",
+      "descricao": "Dono de uma clinica odontologica em Campinas, cerca de 900 pacientes na base."
+    },
+    "cenario": "Terca, 20h14. Marcelo se aplicou a Imersao ha 3 minutos pelo anuncio. A Carol liga na sequencia.",
+    "call_meta": {
+      "direcao": "outbound",
+      "numero_exibido": "+14706164413",
+      "duracao_s": 101,
+      "audio_src": null,
+      "gravacao_avisada": true,
+      "disclosure_ia": true
+    },
+    "cores": { "agente": "#F2A900", "lead": "#1B2A4A" },
+    "timeline": [
+      { "id": 1, "from": "agente", "type": "speech", "audio_start_s": 0.0, "audio_end_s": 9.0, "dur_s": 9.0,
+        "text": "Oi, Marcelo, tudo bem? Aqui e a Carol, consultora virtual da Base Viral. Essa ligacao e gravada pra qualidade, ta bom? Recebi seu contato e to te ligando pra dar o pontape inicial na sua participacao na Imersao Ecossistema de Indicacao. Voce tem uns minutinhos agora?",
+        "backstage": { "step": "abertura", "label": "Abertura + disclosure de IA + aviso de gravacao", "node": "retell:opening" } },
+      { "id": 2, "from": "lead", "type": "speech", "audio_start_s": 9.0, "audio_end_s": 12.0, "dur_s": 3.0,
+        "text": "Oi, tudo bem sim. Tenho uns minutos, pode falar." },
+      { "id": 3, "from": "agente", "type": "speech", "audio_start_s": 12.0, "audio_end_s": 16.0, "dur_s": 4.0,
+        "text": "Que otimo. So pra garantir que to falando com a pessoa certa: seu nome completo, por favor?",
+        "backstage": { "step": "confirmacao", "label": "Confirmacao de identidade", "node": "retell:confirm" } },
+      { "id": 4, "from": "lead", "type": "speech", "audio_start_s": 16.0, "audio_end_s": 19.0, "dur_s": 3.0,
+        "text": "Marcelo Andrade, da clinica aqui em Campinas." },
+      { "id": 5, "from": "agente", "type": "speech", "audio_start_s": 19.0, "audio_end_s": 24.0, "dur_s": 5.0,
+        "text": "Perfeito, Marcelo. Deixa eu te conhecer rapidinho, pode ser? Qual e o segmento do seu negocio?",
+        "backstage": { "step": "qualificacao", "label": "Pergunta 1: segmento", "node": "n8n:crm_read" } },
+      { "id": 6, "from": "lead", "type": "speech", "audio_start_s": 24.0, "audio_end_s": 28.0, "dur_s": 4.0,
+        "text": "Odontologia. Tenho uma clinica com alguns dentistas comigo." },
+      { "id": 7, "from": "agente", "type": "speech", "audio_start_s": 28.0, "audio_end_s": 33.0, "dur_s": 5.0,
+        "text": "Bacana. E quantos pacientes voce tem hoje na sua base, mais ou menos?",
+        "backstage": { "step": "qualificacao", "label": "Pergunta 2: tamanho da base", "node": "retell:extract" } },
+      { "id": 8, "from": "lead", "type": "speech", "audio_start_s": 33.0, "audio_end_s": 36.0, "dur_s": 3.0,
+        "text": "Uns 900, por ai." },
+      { "id": 9, "from": "agente", "type": "speech", "audio_start_s": 36.0, "audio_end_s": 40.0, "dur_s": 4.0,
+        "text": "Boa base. Esses pacientes ja te indicam de forma espontanea?",
+        "backstage": { "step": "qualificacao", "label": "Pergunta 3: indicacao espontanea", "node": "retell:extract" } },
+      { "id": 10, "from": "lead", "type": "speech", "audio_start_s": 40.0, "audio_end_s": 45.0, "dur_s": 5.0,
+        "text": "As vezes indicam, mas e tudo no boca a boca, nada organizado." },
+      { "id": 11, "from": "lead", "type": "speech", "audio_start_s": 45.0, "audio_end_s": 48.0, "dur_s": 3.0,
+        "text": "Perai, deixa eu te perguntar: voce e um robo?",
+        "tag": "guardrail" },
+      { "id": 12, "from": "agente", "type": "speech", "audio_start_s": 48.0, "audio_end_s": 56.0, "dur_s": 8.0,
+        "text": "Boa pergunta. Eu sou a assistente virtual da Base Viral, sim. Faco esse primeiro contato pra ninguem ficar esperando. Se voce preferir falar com uma pessoa, eu ja passo pra um especialista, ta?",
+        "backstage": { "step": "honestidade", "label": "Guardrail: admite ser IA (nunca nega)", "node": "retell:guardrail" },
+        "tag": "guardrail" },
+      { "id": 13, "from": "lead", "type": "speech", "audio_start_s": 56.0, "audio_end_s": 59.0, "dur_s": 3.0,
+        "text": "Ah, tranquilo, pode seguir." },
+      { "id": 14, "from": "agente", "type": "speech", "audio_start_s": 59.0, "audio_end_s": 63.0, "dur_s": 4.0,
+        "text": "Combinado. Ultima coisa: voce usa algum sistema de CRM pra controlar esses contatos?",
+        "backstage": { "step": "qualificacao", "label": "Pergunta 4: usa CRM", "node": "retell:extract" } },
+      { "id": 15, "from": "lead", "type": "speech", "audio_start_s": 63.0, "audio_end_s": 67.0, "dur_s": 4.0,
+        "text": "Uso uma planilha, mas e bem improvisado." },
+      { "id": 16, "from": "agente", "type": "speech", "audio_start_s": 67.0, "audio_end_s": 75.0, "dur_s": 8.0,
+        "text": "Show, Marcelo. Pelo que voce me contou, faz muito sentido voce conversar com um dos nossos especialistas. Ele tira todas as suas duvidas sobre a imersao e ve como ela encaixa no seu momento, sem compromisso. Posso ja deixar isso agendado pra voce?",
+        "backstage": { "step": "transicao", "label": "Transicao para agendamento", "node": "retell:transition" } },
+      { "id": 17, "from": "lead", "type": "speech", "audio_start_s": 75.0, "audio_end_s": 77.0, "dur_s": 2.0,
+        "text": "Pode ser, sim." },
+      { "id": 18, "from": "agente", "type": "speech", "audio_start_s": 77.0, "audio_end_s": 84.0, "dur_s": 7.0,
+        "text": "Maravilha. Deixa eu ver aqui a agenda dele. Consigo quinta de manha as 10h, ou sexta as 16h. Qual encaixa melhor pra voce?",
+        "backstage": { "step": "agendamento", "label": "Checa agenda real e oferece 2 horarios", "node": "n8n:calendar_read" } },
+      { "id": 19, "from": "lead", "type": "speech", "audio_start_s": 84.0, "audio_end_s": 87.0, "dur_s": 3.0,
+        "text": "Quinta de manha e melhor pra mim." },
+      { "id": 20, "from": "agente", "type": "speech", "audio_start_s": 87.0, "audio_end_s": 92.0, "dur_s": 5.0,
+        "text": "Fechou, entao ficou pra quinta as 10h, correto?",
+        "backstage": { "step": "agendamento", "label": "Confirma o horario", "node": "n8n:calendar_book" } },
+      { "id": 21, "from": "lead", "type": "speech", "audio_start_s": 92.0, "audio_end_s": 93.0, "dur_s": 1.0,
+        "text": "Isso." },
+      { "id": 22, "from": "agente", "type": "speech", "audio_start_s": 93.0, "audio_end_s": 101.0, "dur_s": 8.0,
+        "text": "Perfeito, Marcelo! Vou te mandar todos os detalhes da conversa por e-mail e um lembrete, ta bom? Obrigada pela atencao e ate la. Vai ser incrivel!",
+        "backstage": { "step": "fechamento", "label": "Fechamento + envio de detalhes", "node": "retell:closing" } }
+    ],
+    "backstage_steps": [
+      { "step": "lead_in", "label": "Lead entra no CRM (webhook)", "trigger_at_s": 0.0, "node": "n8n:webhook" },
+      { "step": "dial", "label": "n8n dispara a discagem em menos de 5 minutos", "trigger_at_s": 0.0, "node": "n8n:retell_call" },
+      { "step": "stt", "label": "Retell: fala para texto em streaming", "trigger_at_s": 9.0, "node": "retell:stt" },
+      { "step": "brain", "label": "Cerebro decide o proximo passo", "trigger_at_s": 12.0, "node": "retell:llm" },
+      { "step": "crm_lookup", "label": "Consulta dados do lead", "trigger_at_s": 19.0, "node": "n8n:crm_read" },
+      { "step": "tts", "label": "ElevenLabs: voz de baixa latencia", "trigger_at_s": 0.2, "node": "elevenlabs:tts" },
+      { "step": "calendar", "label": "Checa a agenda real", "trigger_at_s": 77.0, "node": "n8n:calendar_read" },
+      { "step": "post_call", "label": "Pos-chamada: extrai e estrutura", "trigger_at_s": 95.0, "node": "n8n:extract" },
+      { "step": "crm_write", "label": "Atualiza CRM + agenda a reuniao", "trigger_at_s": 97.0, "node": "n8n:crm_write" },
+      { "step": "handoff", "label": "Notifica o especialista com o contexto", "trigger_at_s": 99.0, "node": "n8n:handoff" }
+    ],
+    "lead_qualified": {
+      "nome": "Marcelo Andrade",
+      "empresa": "Clinica odontologica (Campinas)",
+      "segmento": "Odontologia",
+      "qtd_clientes_base": "cerca de 900 pacientes",
+      "ja_indica_espontaneo": true,
+      "usa_crm": false,
+      "necessidade": "Recebe indicacoes espontaneas mas sem sistema; quer estruturar",
+      "urgencia": "media-alta",
+      "qualificado": true,
+      "agendou_reuniao": true,
+      "data_hora_agendada": "{{DIA_QUINTA}} as 10h",
+      "proximo_passo": "agendar",
+      "sentimento": "positivo",
+      "handoff": "Notificar o especialista: lead quente, reuniao confirmada no calendario",
+      "score": 87
+    }
+  };
+
+  /* ===========================================================
+     DATAS REAIS: interpola {{DIA_QUINTA}} na proxima quinta-feira
+     =========================================================== */
+  function proximaQuinta(){
+    var base = new Date();
+    for(var i=1;i<=14;i++){
+      var c = new Date(); c.setDate(base.getDate()+i);
+      if(c.getDay() === 4) return c; /* 4 = quinta-feira */
+    }
+    return base;
+  }
+  function ddmm(dt){ return ("0"+dt.getDate()).slice(-2)+"/"+("0"+(dt.getMonth()+1)).slice(-2); }
+  var _q = proximaQuinta();
+  var VARS = {
+    DIA_QUINTA: "quinta-feira, " + ddmm(_q),
+    DIA_QUINTA_CAP: "Quinta-feira (" + ddmm(_q) + ")"
+  };
+  function interp(s){ return String(s).replace(/\{\{(\w+)\}\}/g, function(m,k){ return VARS[k]!=null ? VARS[k] : m; }); }
+
+  /* ===========================================================
+     ESTADO + refs
+     =========================================================== */
+  var reduced = false;
+  try { reduced = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches; } catch(e){}
+
+  var state = {
+    mode: "apresentacao", speed: 1, started: false, ended: false, everPlayed: false,
+    lastIdx: -2, speaker: "idle", reduced: reduced, loopTimer: null
+  };
+
+  var clock = { t: 0, playing: false, speed: 1 };
+  var audioEl = null;
+  var DUR = DADOS.call_meta.duracao_s;
+
+  var $ = function(id){ return document.getElementById(id); };
+  var callCard = $("callCard");
+  var waveEl = $("wave");
+  var progressEl = $("progress");
+  var progFill = $("progFill");
+  var progHead = $("progHead");
+  var timerEl = $("timer");
+  var playBtn = $("playBtn");
+  var transcriptEl = $("transcript");
+  var stepperEl = $("stepper");
+  var leadCard = $("leadCard");
+  var backstage = $("backstage");
+  var backdrop = $("backdrop");
+  var btnBackstage = $("btnBackstage");
+  var avatarEl = $("avatar");
+  var bsScroll = document.querySelector(".bs-scroll");
+
+  /* ===========================================================
+     HELPERS
+     =========================================================== */
+  function el(tag, cls, html){
+    var n = document.createElement(tag);
+    if(cls) n.className = cls;
+    if(html != null) n.innerHTML = html;
+    return n;
+  }
+  function esc(s){
+    return String(s).replace(/[&<>"]/g, function(c){
+      return ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"})[c];
+    });
+  }
+  function mmss(s){ s = Math.max(0, Math.floor(s)); return Math.floor(s/60)+":"+("0"+(s%60)).slice(-2); }
+  function getDur(){ return audioEl && isFinite(audioEl.duration) && audioEl.duration>0 ? audioEl.duration : DUR; }
+  function fmtNumero(raw){
+    var d = String(raw).replace(/[^\d]/g,"");
+    if(d.length === 11 && d.charAt(0) === "1"){
+      return "+1 (" + d.slice(1,4) + ") " + d.slice(4,7) + " " + d.slice(7);
+    }
+    return raw;
+  }
+
+  var IC_CHECK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>';
+
+  /* ===========================================================
+     ZONA 2: transcricao (nasce visivel = FAIL-SAFE)
+     =========================================================== */
+  var lineEls = [];
+  function buildTranscript(){
+    /* preserva o noscript, limpa o resto */
+    transcriptEl.innerHTML = "";
+    lineEls = [];
+    var tl = DADOS.timeline;
+    for(var i=0;i<tl.length;i++){
+      var turn = tl[i];
+      var side = turn.from === "agente" ? "agent" : "lead";
+      var who = turn.from === "agente" ? "Carol" : "Marcelo";
+      var seals = "";
+      if(i === 0){ seals = '<span class="seal ia"><span class="dotmark"></span>assistente virtual</span>'; }
+      else if(turn.tag === "guardrail"){ seals = '<span class="seal guard"><span class="dotmark"></span>honestidade</span>'; }
+      var row = el("div", "line " + side);
+      row.setAttribute("data-i", i);
+      row.innerHTML =
+        '<div class="bubble">'
+        + '<div class="b-meta"><span class="who">' + who + '</span>' + seals + '</div>'
+        + '<div class="b-text">' + esc(turn.text) + '</div>'
+        + '</div>';
+      transcriptEl.appendChild(row);
+      lineEls.push(row);
+    }
+  }
+
+  function turnAt(t){
+    var tl = DADOS.timeline;
+    for(var i=0;i<tl.length;i++){
+      if(t >= tl[i].audio_start_s && t < tl[i].audio_end_s) return i;
+    }
+    if(tl.length && t >= tl[tl.length-1].audio_end_s) return tl.length - 1;
+    return -1;
+  }
+
+  function setActive(idx){
+    for(var i=0;i<lineEls.length;i++){
+      var c = lineEls[i].classList;
+      c.remove("active"); c.remove("past");
+      if(i < idx) c.add("past");
+      else if(i === idx) c.add("active");
+    }
+    if(idx >= 0){
+      var turn = DADOS.timeline[idx];
+      state.speaker = turn.from === "agente" ? "agent" : "lead";
+      avatarEl.textContent = turn.from === "agente" ? "C" : "M";
+      scrollLineIntoView(lineEls[idx]);
+    } else {
+      state.speaker = "idle";
+      avatarEl.textContent = "C";
+    }
+    applySpeakingUI();
+  }
+
+  /* indicador de fala (cor da waveform + pulso do avatar) so quando tocando */
+  function applySpeakingUI(){
+    var spk = (clock.playing && state.speaker !== "idle") ? state.speaker : "idle";
+    waveEl.className = "wave spk-" + spk;
+    callCard.classList.remove("speaking-agent","speaking-lead");
+    if(clock.playing && state.speaker === "agent") callCard.classList.add("speaking-agent");
+    else if(clock.playing && state.speaker === "lead") callCard.classList.add("speaking-lead");
+  }
+
+  function scrollLineIntoView(node){
+    if(!node) return;
+    try {
+      var target = node.offsetTop - (transcriptEl.clientHeight/2) + (node.offsetHeight/2);
+      transcriptEl.scrollTop = Math.max(0, target);
+    } catch(e){}
+  }
+
+  /* ===========================================================
+     ZONA 3: bastidores (stepper ordenado por trigger_at_s)
+     =========================================================== */
+  var stepData = [], stepEls = [];
+  function buildStepper(){
+    stepData = DADOS.backstage_steps.slice().sort(function(a,b){ return a.trigger_at_s - b.trigger_at_s; });
+    stepperEl.innerHTML = "";
+    stepEls = [];
+    for(var i=0;i<stepData.length;i++){
+      var s = stepData[i];
+      var li = el("li", "step");
+      li.innerHTML =
+        '<span class="step-dot">' + IC_CHECK + '</span>'
+        + '<div class="step-body">'
+        + '<div class="step-label">' + esc(s.label) + '</div>'
+        + '<div class="step-node">' + esc(s.node) + '</div>'
+        + '</div>';
+      stepperEl.appendChild(li);
+      stepEls.push(li);
+    }
+  }
+
+  function updateSteps(t){
+    var nowIdx = -1;
+    for(var i=0;i<stepEls.length;i++){
+      var lit = t >= stepData[i].trigger_at_s;
+      stepEls[i].classList.toggle("lit", lit);
+      if(lit) nowIdx = i;
+      stepEls[i].classList.remove("now");
+    }
+    /* marca como "now" o ultimo step aceso ainda recente (< 4s do trigger) */
+    if(nowIdx >= 0 && (t - stepData[nowIdx].trigger_at_s) < 4 && t < getDur()){
+      stepEls[nowIdx].classList.add("now");
+    }
+  }
+
+  /* ===========================================================
+     CARD DE LEAD QUALIFICADO
+     =========================================================== */
+  function buildLeadCard(){
+    var q = DADOS.lead_qualified;
+    /* data real interpolada de {{DIA_QUINTA}} com acento correto no chrome */
+    var agendadoTxt = VARS.DIA_QUINTA_CAP + ", &agrave;s 10h";
+    var rows = [
+      { lb:"Segmento", vl:"Odontologia" },
+      { lb:"Base de pacientes", vl:"cerca de 900" },
+      { lb:"Indicacoes hoje", vl:"espontaneas, sem sistema" },
+      { lb:"CRM", vl:"nao usa (planilha improvisada)" },
+      { lb:"Reuniao agendada", vl:agendadoTxt, hot:true },
+      { lb:"Handoff", vl:"especialista notificado, lead quente", hot:true },
+      { lb:"Sentimento", vl:"positivo" }
+    ];
+    var rowsHtml = rows.map(function(r){
+      return '<div class="q' + (r.hot ? " hot" : "") + '">'
+        + '<span class="tick2">' + IC_CHECK + '</span>'
+        + '<div class="body"><div class="lb2">' + esc(r.lb) + '</div>'
+        + '<div class="vl">' + r.vl + '</div></div></div>';
+    }).join("");
+
+    leadCard.innerHTML =
+      '<div class="lead-toast"><span class="tick">' + IC_CHECK + '</span>'
+      + '<span>Lead qualificado, na agenda e com o especialista.</span></div>'
+      + '<div class="lead-top">'
+      +   '<svg class="ring" viewBox="0 0 120 120" aria-label="Score 87">'
+      +     '<defs><linearGradient id="rg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#FFC64D"/><stop offset="1" stop-color="#F2A900"/></linearGradient></defs>'
+      +     '<circle class="ring-bg" cx="60" cy="60" r="52"/>'
+      +     '<circle class="ring-fg" cx="60" cy="60" r="52"/>'
+      +     '<text class="num" x="60" y="58" text-anchor="middle" dominant-baseline="central">' + q.score + '</text>'
+      +     '<text class="lbl" x="60" y="80" text-anchor="middle">SCORE</text>'
+      +   '</svg>'
+      +   '<div class="lead-title"><span class="k">Lead qualificado</span>'
+      +     '<span class="n">' + esc(q.nome) + '</span>'
+      +     '<span class="s">' + esc(q.empresa) + '</span></div>'
+      + '</div>'
+      + '<div class="qgrid">' + rowsHtml + '</div>'
+      + '<div class="lead-foot">Tudo isso a Carol entendeu e agendou sozinha na ligacao.</div>';
+  }
+
+  function revealLead(show){
+    leadCard.classList.toggle("show", !!show);
+    var mobile = window.matchMedia && window.matchMedia("(max-width:900px)").matches;
+    if(show){
+      if(mobile){ openSheet(); }
+      /* traz o card de lead para a area visivel do painel (o momento-prova) */
+      if(bsScroll){
+        try {
+          var cardTop = leadCard.getBoundingClientRect().top;
+          var scTop = bsScroll.getBoundingClientRect().top;
+          bsScroll.scrollTo({ top: bsScroll.scrollTop + (cardTop - scTop) - 10, behavior: state.reduced ? "auto" : "smooth" });
+        } catch(e){ try { bsScroll.scrollTop = bsScroll.scrollHeight; } catch(e2){} }
+      }
+    } else if(bsScroll){
+      try { bsScroll.scrollTo({ top:0, behavior: state.reduced ? "auto" : "smooth" }); } catch(e){ bsScroll.scrollTop = 0; }
+    }
+  }
+
+  /* ===========================================================
+     RELOGIO-MESTRE (audio quando presente, senao sintetico por dur_s)
+     =========================================================== */
+  function setupAudio(){
+    var src = DADOS.call_meta.audio_src;
+    if(!src){ audioEl = null; return; }
+    try {
+      audioEl = new Audio();
+      audioEl.preload = "auto";
+      audioEl.src = src;
+      audioEl.addEventListener("error", function(){ audioEl = null; }); /* fallback sintetico */
+      audioEl.addEventListener("ended", function(){ clock.t = getDur(); onReachEnd(); });
+      audioEl.addEventListener("pause", function(){ if(!state.ended){ clock.playing = false; setPlayIcon(false); } });
+      audioEl.addEventListener("play", function(){ clock.playing = true; setPlayIcon(true); });
+    } catch(e){ audioEl = null; }
+  }
+
+  var lastTs = 0;
+  function frame(ts){
+    if(!lastTs) lastTs = ts;
+    var dtms = ts - lastTs; lastTs = ts;
+
+    if(clock.playing){
+      if(audioEl){ clock.t = audioEl.currentTime; }
+      else { clock.t += (dtms/1000) * clock.speed; }
+      if(clock.t >= getDur()){ clock.t = getDur(); onReachEnd(); }
+    }
+    updateWave(ts);
+    render(clock.t);
+    requestAnimationFrame(frame);
+  }
+
+  /* ===========================================================
+     WAVEFORM (amplitude animada por turno ativo)
+     =========================================================== */
+  var NBARS = 56, barsEls = [], envelope = [], curH = [];
+  var MINH = 4, MAXH = 54;
+  function buildWave(){
+    waveEl.innerHTML = "";
+    barsEls = []; envelope = []; curH = [];
+    for(var i=0;i<NBARS;i++){
+      var e = 0.30 + 0.70 * Math.abs(Math.sin(i*0.5) + 0.55*Math.sin(i*0.17) + 0.3*Math.sin(i*0.9));
+      if(e > 1) e = 1; if(e < 0.22) e = 0.22;
+      envelope.push(e);
+      curH.push(MINH);
+      var b = document.createElement("i");
+      waveEl.appendChild(b);
+      barsEls.push(b);
+    }
+  }
+  function updateWave(ts){
+    var t = ts / 1000;
+    var playing = clock.playing;
+    var gain = state.speaker === "lead" ? 0.72 : 1;
+    var smooth = state.reduced ? 1 : 0.26;
+    for(var i=0;i<NBARS;i++){
+      var target;
+      if(playing && !state.reduced){
+        var a = Math.abs(
+          Math.sin(t*3.0*clock.speed + i*0.5) * 0.6 +
+          Math.sin(t*5.3*clock.speed + i*0.27) * 0.4
+        );
+        target = MINH + envelope[i] * MAXH * (0.24 + 0.76*a) * gain;
+      } else if(playing && state.reduced){
+        target = MINH + envelope[i] * MAXH * 0.5 * gain;
+      } else {
+        target = MINH + envelope[i] * 3.2; /* repouso: linha baixa e viva */
+      }
+      curH[i] += (target - curH[i]) * smooth;
+      barsEls[i].style.height = curH[i].toFixed(1) + "px";
+    }
+  }
+
+  /* ===========================================================
+     RENDER por tempo (guardado por indice/estado)
+     =========================================================== */
+  function render(t){
+    var dur = getDur();
+    timerEl.textContent = mmss(t) + " / " + mmss(dur);
+    var ratio = dur ? Math.min(1, t/dur) : 0;
+    progFill.style.width = (ratio*100) + "%";
+    progHead.style.left = (ratio*100) + "%";
+
+    var idx = turnAt(t);
+    if(idx !== state.lastIdx){ setActive(idx); state.lastIdx = idx; }
+
+    updateSteps(t);
+  }
+
+  /* ===========================================================
+     CONTROLE DE REPRODUCAO
+     =========================================================== */
+  function setPlayIcon(playing){ playBtn.classList.toggle("playing", !!playing); if(playing) playBtn.classList.remove("hint"); }
+
+  function play(){
+    if(state.ended){ restart(true); return; }
+    clock.playing = true; state.everPlayed = true; lastTs = 0;
+    setPlayIcon(true); applySpeakingUI();
+    if(audioEl){
+      audioEl.playbackRate = clock.speed;
+      var p = audioEl.play();
+      if(p && p.catch){ p.catch(function(){ clock.playing = false; setPlayIcon(false); }); }
+    }
+  }
+  function pause(){
+    clock.playing = false; setPlayIcon(false); applySpeakingUI();
+    if(audioEl){ audioEl.pause(); }
+  }
+  function toggle(){ if(clock.playing) pause(); else play(); }
+
+  function setSpeed(v){
+    clock.speed = v; state.speed = v;
+    if(audioEl){ audioEl.playbackRate = v; }
+  }
+
+  function seek(t){
+    var dur = getDur();
+    t = Math.max(0, Math.min(dur, t));
+    clock.t = t;
+    if(audioEl){ try { audioEl.currentTime = t; } catch(e){} }
+    if(t < dur - 0.05){ state.ended = false; }
+    state.lastIdx = -2;
+    render(t);
+  }
+
+  function restart(autoplay){
+    if(state.loopTimer){ clearTimeout(state.loopTimer); state.loopTimer = null; }
+    state.ended = false;
+    revealLead(false);
+    seek(0);
+    if(autoplay){ play(); }
+    else { pause(); if(!state.everPlayed) playBtn.classList.add("hint"); }
+  }
+
+  function onReachEnd(){
+    if(state.ended) return;
+    state.ended = true;
+    clock.playing = false;
+    if(audioEl){ audioEl.pause(); }
+    setActive(DADOS.timeline.length - 1);
+    revealLead(true);
+    setPlayIcon(false);
+    if(state.mode === "auto"){
+      if(state.loopTimer) clearTimeout(state.loopTimer);
+      state.loopTimer = setTimeout(function(){
+        if(state.mode !== "auto") return;
+        restart(true);
+      }, 4200 / clock.speed);
+    }
+  }
+
+  /* ===========================================================
+     BOTTOM-SHEET (mobile)
+     =========================================================== */
+  function openSheet(){ backstage.classList.add("open"); backdrop.classList.add("open"); }
+  function closeSheet(){ backstage.classList.remove("open"); backdrop.classList.remove("open"); }
+
+  /* ===========================================================
+     CONTROLES
+     =========================================================== */
+  function setupControls(){
+    playBtn.addEventListener("click", toggle);
+    $("restartBtn").addEventListener("click", function(){ restart(state.mode === "auto"); });
+
+    var speedSeg = $("speedSeg");
+    speedSeg.addEventListener("click", function(ev){
+      var b = ev.target.closest("button"); if(!b) return;
+      setSpeed(parseFloat(b.getAttribute("data-speed")));
+      Array.prototype.forEach.call(speedSeg.children, function(x){ x.classList.toggle("on", x === b); });
+    });
+
+    var modeSeg = $("modeSeg");
+    modeSeg.addEventListener("click", function(ev){
+      var b = ev.target.closest("button"); if(!b) return;
+      var m = b.getAttribute("data-mode");
+      if(m === state.mode) return;
+      state.mode = m;
+      Array.prototype.forEach.call(modeSeg.children, function(x){ x.classList.toggle("on", x === b); });
+      if(m === "auto"){ restart(true); }
+      else { if(state.loopTimer){ clearTimeout(state.loopTimer); state.loopTimer = null; } }
+    });
+
+    /* seek na barra de progresso (clique + arraste) */
+    var dragging = false;
+    function seekFromEvent(ev){
+      var rect = progressEl.getBoundingClientRect();
+      var x = (ev.touches ? ev.touches[0].clientX : ev.clientX) - rect.left;
+      var ratio = Math.max(0, Math.min(1, x / rect.width));
+      seek(ratio * getDur());
+    }
+    progressEl.addEventListener("mousedown", function(ev){ dragging = true; seekFromEvent(ev); });
+    document.addEventListener("mousemove", function(ev){ if(dragging) seekFromEvent(ev); });
+    document.addEventListener("mouseup", function(){ dragging = false; });
+    progressEl.addEventListener("touchstart", function(ev){ seekFromEvent(ev); }, {passive:true});
+    progressEl.addEventListener("touchmove", function(ev){ seekFromEvent(ev); }, {passive:true});
+    progressEl.addEventListener("keydown", function(ev){
+      if(ev.key === "ArrowRight"){ ev.preventDefault(); seek(clock.t + 3); }
+      else if(ev.key === "ArrowLeft"){ ev.preventDefault(); seek(clock.t - 3); }
+    });
+
+    /* clique numa fala salta para aquele momento */
+    transcriptEl.addEventListener("click", function(ev){
+      var line = ev.target.closest(".line"); if(!line) return;
+      var i = parseInt(line.getAttribute("data-i"), 10);
+      if(isNaN(i)) return;
+      seek(DADOS.timeline[i].audio_start_s + 0.01);
+      play();
+    });
+
+    /* teclado: espaco = play/pause */
+    document.addEventListener("keydown", function(ev){
+      if(ev.key === " " || ev.key === "Spacebar"){
+        if(ev.target && /^(BUTTON|INPUT|TEXTAREA|SELECT)$/.test(ev.target.tagName)) return;
+        ev.preventDefault(); toggle();
+      }
+    });
+
+    /* bottom-sheet mobile */
+    btnBackstage.addEventListener("click", function(){
+      if(backstage.classList.contains("open")) closeSheet(); else openSheet();
+    });
+    $("sheetClose").addEventListener("click", closeSheet);
+    backdrop.addEventListener("click", closeSheet);
+  }
+
+  /* ===========================================================
+     FALLBACK ESTATICO (reduced-motion / erro / watchdog)
+     =========================================================== */
+  function renderInstant(){
+    document.documentElement.classList.remove("js-anim");
+    /* garante conteudo visivel e coerente sem depender do motor */
+    for(var i=0;i<stepEls.length;i++){ stepEls[i].classList.add("lit"); stepEls[i].classList.remove("now"); }
+    revealLead(true);
+    setActive(DADOS.timeline.length - 1);
+    seek(getDur());
+    setPlayIcon(false);
+  }
+
+  /* ===========================================================
+     INIT (try/catch + watchdog)
+     =========================================================== */
+  function init(){
+    try {
+      DADOS.call_meta.numero_exibido && ($("numero").textContent = fmtNumero(DADOS.call_meta.numero_exibido));
+
+      buildWave();
+      buildTranscript();
+      buildStepper();
+      buildLeadCard();
+      setupAudio();
+      setupControls();
+
+      /* progressive enhancement ligado: dim/highlight/reveal viram ativos */
+      document.documentElement.classList.add("js-anim");
+      state.started = true;
+
+      /* estado inicial: t=0, primeira fala ja destacada, aguardando play */
+      seek(0);
+
+      requestAnimationFrame(frame);
+
+      if(reduced){ renderInstant(); return; }
+
+      /* Apresentacao: comeca pausado com Play convidando o apresentador.
+         Auto: autoplay em loop suave (funciona ja sem audio, via dur_s). */
+      if(state.mode === "auto"){ play(); }
+      else { playBtn.classList.add("hint"); }
+
+      /* watchdog: se o motor nunca rodou de fato, revela tudo */
+      setTimeout(function(){
+        if(!state.started){ renderInstant(); return; }
+        if(!barsEls.length){ renderInstant(); }
+      }, 9000);
+
+    } catch(err){
+      try { console.error("[Base Viral player]", err); } catch(e){}
+      renderInstant();
+    }
+  }
+
+  if(document.readyState === "loading"){
+    document.addEventListener("DOMContentLoaded", init);
+  } else {
+    init();
+  }
+})();
+</script>
+</body>
+</html>
